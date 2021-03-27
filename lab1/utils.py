@@ -130,14 +130,14 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, pat
     train_loss = np.array(train_loss)
     val_loss = np.array(val_loss)
 
-    np.save(f'History/weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}.npy', W)
-    np.save(f'History/bias_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}.npy', b)
-    np.save(f'History/train_loss_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}.npy', train_loss)
-    np.save(f'History/val_loss_{epochs}_{batch_size}_{eta}_{patience}.npy', val_loss)
+    np.save(f'History/weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', W)
+    np.save(f'History/bias_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', b)
+    np.save(f'History/train_loss_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', train_loss)
+    np.save(f'History/val_loss_{epochs}_{batch_size}_{eta}_{patience}_{int(reorder)}_{int(annealing)}.npy', val_loss)
 
     return W, b, train_loss, val_loss
 
-def plot_weights(W, GDparams):
+def plot_weights(W, GDparams, patience=0, annealing=False, reorder=False):
 
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta"],  GDparams["lambda"]
 
@@ -152,11 +152,11 @@ def plot_weights(W, GDparams):
         axes1[k].set_axis_off()
         axes1[k].imshow(s_im[i])
 
-    plt.savefig(f'History/weights_{epochs}_{batch_size}_{eta}_{_lambda}.png')
+    plt.savefig(f'History/weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
     plt.show()
 
 
-def plot_loss(train_loss, val_loss, GDparams):
+def plot_loss(train_loss, val_loss, GDparams, patience=0, annealing=False, reorder=False):
 
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta"],  GDparams["lambda"]
 
@@ -165,7 +165,7 @@ def plot_loss(train_loss, val_loss, GDparams):
     plt.xlabel("epochs")
     plt.ylabel("cross entropy")
     plt.legend()
-    plt.savefig(f'History/hist_{epochs}_{batch_size}_{eta}_{_lambda}.png')
+    plt.savefig(f'History/hist_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
     plt.show()
 
 
