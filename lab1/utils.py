@@ -74,7 +74,7 @@ def compare_gradients(ga, gn, eps):
             rerr[i, j] = abs(ga[i, j] - gn[i, j]) / max(eps, abs(ga[i, j]) + abs(gn[i, j]))
     return rerr
 
-def history(X, Y, y, X_val, Y_val, y_val, epoch, W, b, _lambda, train_loss, val_loss):
+def history(X, Y, y, X_val, Y_val, y_val, epoch, W, b, _lambda, train_loss, val_loss,  verbose=True):
     
     J_train = ComputeCost(X, Y, W, b, _lambda)
     J_val = ComputeCost(X_val, Y_val, W, b, _lambda)
@@ -82,24 +82,29 @@ def history(X, Y, y, X_val, Y_val, y_val, epoch, W, b, _lambda, train_loss, val_
     train_acc = ComputeAccuracy(X, y, W, b)
     val_acc = ComputeAccuracy(X_val, y_val, W, b)
 
-    print(f'Epoch {epoch}: train_acc={train_acc} | val_acc={val_acc} | train_loss={J_train} | val_loss={J_val}')
+    if verbose:
+        print(f'Epoch {epoch}: train_acc={train_acc} | val_acc={val_acc} | train_loss={J_train} | val_loss={J_val}')
 
     train_loss.append(J_train)
     val_loss.append(J_val)
 
-def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, _lambda, seed=42):
-    # np.random.seed(seed)
+def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, patience=0, annealing=False, reorder=False):
     _, n = X.shape
 
     train_loss, val_loss =  [], []
 
-    epochs, batch_size, eta = GDparams["epochs"], GDparams["batch_size"], GDparams["eta"]
+    epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta"],  GDparams["lambda"]
 
-    history(X, Y, y,  X_val, Y_val, y_val, 0, W, b, _lambda, train_loss, val_loss)
+    if annealing:
+        gamma = GDparams['eta_decay']
+        freq = GDparams['eta_decay_freq']
+
+    history(X, Y, y,  X_val, Y_val, y_val, 0, W, b, _lambda, train_loss, val_loss, verbose)
 
     for epoch in tqdm(range(epochs)):
-
-        # X, Y, y = shuffle(X, Y, y.reshape(-1,1), random_state=epoch)
+        if reorder:
+            X, Y, y = shuffle(X.T, Y.T, y.T, random_state=epoch)
+            X, Y, y = X.T, Y.T, y.T
 
         for j in range(n//batch_size):
             j_start = j * batch_size
@@ -107,29 +112,35 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, _lambda, seed=42)
             X_batch = X[:, j_start:j_end]
             Y_batch = Y[:, j_start:j_end]
 
-            # print(X_batch.shape)
-
             P_batch = EvaluateClassifier(X_batch, W, b)
-            # print(P_batch)
             grad_W, grad_b = ComputeGradients(X_batch, Y_batch, P_batch, W, _lambda)
-            # print("W", grad_W, "b", grad_b)
 
             W -= eta * grad_W
             b -= eta * grad_b.reshape(len(b), 1)
 
-        history(X, Y, y,  X_val, Y_val, y_val, epoch, W, b, _lambda, train_loss, val_loss)
+        history(X, Y, y,  X_val, Y_val, y_val, epoch, W, b, _lambda, train_loss, val_loss, verbose)
+
+        if early_stopping(val_loss, patience) and patience > 0:
+            print(f"Early Stopping @ Epoch: {epoch}")
+            break
+
+        if annealing:
+            update_eta(eta, gamma, freq, epoch)
 
     train_loss = np.array(train_loss)
     val_loss = np.array(val_loss)
 
-    np.save('History/weights_{epochs}_{batch_size}_{eta}_{_lambda}.npy', W)
-    np.save('History/bias_{epochs}_{batch_size}_{eta}_{_lambda}.npy', b)
-    np.save('History/train_loss_{epochs}_{batch_size}_{eta}_{_lambda}.npy', train_loss)
-    np.save('History/val_loss_{epochs}_{batch_size}_{eta}.npy', val_loss)
+    np.save(f'History/weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}.npy', W)
+    np.save(f'History/bias_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}.npy', b)
+    np.save(f'History/train_loss_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}.npy', train_loss)
+    np.save(f'History/val_loss_{epochs}_{batch_size}_{eta}_{patience}.npy', val_loss)
 
     return W, b, train_loss, val_loss
 
-def plot_weights(W, epochs, batch_size, eta, _lambda):
+def plot_weights(W, GDparams):
+
+    epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta"],  GDparams["lambda"]
+
     s_im = {}
     K = W.shape[0]
     for i in range(K):
@@ -142,13 +153,27 @@ def plot_weights(W, epochs, batch_size, eta, _lambda):
         axes1[k].imshow(s_im[i])
 
     plt.savefig(f'History/weights_{epochs}_{batch_size}_{eta}_{_lambda}.png')
+    plt.show()
 
 
-def plot_loss(train_loss, val_loss, epochs, batch_size, eta, _lambda):
+def plot_loss(train_loss, val_loss, GDparams):
+
+    epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta"],  GDparams["lambda"]
+
     plt.plot(train_loss, label="Train loss")
     plt.plot(val_loss, label="Validation loss")
     plt.xlabel("epochs")
-    plt.ylabel("loss")
+    plt.ylabel("cross entropy")
     plt.legend()
     plt.savefig(f'History/hist_{epochs}_{batch_size}_{eta}_{_lambda}.png')
     plt.show()
+
+
+def early_stopping(val_loss, patience):
+    if len(val_loss) > 2*patience: 
+        return all(x < y for x, y in zip(val_loss[-patience:], val_loss[-patience+1:]))
+    return False
+
+def update_eta(eta, gamma, freq, epoch):
+    if epoch%freq == 0:
+        eta = gamma*eta
