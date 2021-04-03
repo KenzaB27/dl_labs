@@ -174,7 +174,7 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, pat
                 X_batch, Y_batch, P_batch, W, _lambda)
             else:
                 grad_W, grad_b = ComputeGradientsHinge(
-                    X_batch, Y_batch, P_batch, W, _lambda)
+                    X_batch, Y_batch, W, b, _lambda)
 
             W -= eta * grad_W
             b -= eta * grad_b.reshape(len(b), 1)

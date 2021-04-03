@@ -1,5 +1,5 @@
 import numpy as np
-from utils import * 
+from utils import *
 from numba import jit, cuda
 def softmax(x):
     """ Standard definition of the softmax function """
