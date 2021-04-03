@@ -71,6 +71,47 @@ def ComputeGradients(X, Y, P, W, _lambda):
 
     return grad_W, grad_b
 
+# def ComputeGradientsHinge(X, Y, W, b, _lambda):
+#     tobi = np.sum(np.multiply(Y,  W@X + b), axis=0)
+#     K = W.shape[0]
+#     grad_W = _lambda * W
+#     grad_b = np.zeros((K,1))
+#     grad_W[tobi < 1] = _lambda * W[tobi<1] - Y[tobi < 1] @ 
+
+#     return grad_W, grad_b
+
+
+def ComputeCostHinge(X, Y, W, b, _lambda):
+    N = X.shape[1]
+    s = W @ X + b
+    scores = s.T[np.arange(s.shape[1]), np.argmax(Y, axis=0)].T 
+
+    margins = np.max(0, s - np.asarray(scores) + 1)
+    margins.T[np.arange(s.shape[1]), np.argmax(Y, axis=0)] = 0
+
+    hinge_loss = Y.shape[0] * np.meand(np.sum(margins, axis=1))
+
+    cost = 1/N * hinge_loss + 0.5 * _lambda * np.sum(W**2)
+
+
+def ComputeGradientsHinge(X, Y, W, b, _lambda):
+    n_batch = X.shape[1]
+    scores = W @ X + b
+    yi_scores = scores[np.argmax(Y, axis=0), np.arange(X.shape[1])]
+    
+    margins = np.maximum(0, scores - np.asarray(yi_scores) + 1)
+    margins[np.argmax(Y, axis=0), np.arange(X.shape[1])] = 0
+
+    binary = margins
+    binary[margins > 0] = 1
+    row_sum = np.sum(binary, axis=0)
+    binary[np.argmax(Y, axis=0), np.arange(X.shape[1])] = -row_sum.T
+    
+    grad_W = binary @ X.T / n_batch + 2 * _lambda * W
+    gradb = np.sum(binary, axis=1)/n_batch
+
+    return grad_W, gradb
+
 
 def compare_gradients(ga, gn, eps):
     K, d = ga.shape
@@ -100,7 +141,7 @@ def history(X, Y, y, X_val, Y_val, y_val, epoch, W, b, _lambda, train_loss, val_
     val_acc.append(v_acc)
 
 
-def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, patience=0, annealing=False, reorder=False):
+def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, patience=0, annealing=False, reorder=False, loss="cross_entropy"):
     _, n = X.shape
 
     train_loss, val_loss = [], []
@@ -128,8 +169,12 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, pat
             Y_batch = Y[:, j_start:j_end]
 
             P_batch = EvaluateClassifier(X_batch, W, b)
-            grad_W, grad_b = ComputeGradients(
+            if loss == "cross_entropy":
+                grad_W, grad_b = ComputeGradients(
                 X_batch, Y_batch, P_batch, W, _lambda)
+            else:
+                grad_W, grad_b = ComputeGradientsHinge(
+                    X_batch, Y_batch, P_batch, W, _lambda)
 
             W -= eta * grad_W
             b -= eta * grad_b.reshape(len(b), 1)
