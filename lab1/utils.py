@@ -141,7 +141,7 @@ def history(X, Y, y, X_val, Y_val, y_val, epoch, W, b, _lambda, train_loss, val_
     val_acc.append(v_acc)
 
 
-def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, patience=0, annealing=False, reorder=False, loss="cross_entropy"):
+def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, patience=0, annealing=False, reorder=False, loss="cross_entropy", experiment="mandatory"):
     _, n = X.shape
 
     train_loss, val_loss = [], []
@@ -190,7 +190,7 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, pat
             update_eta(eta, gamma, freq, epoch)
 
     backup(GDparams, W, b, train_loss, val_loss, train_acc,
-           val_acc, patience=0, annealing=False, reorder=False)
+           val_acc, patience=patience, annealing=annealing, reorder=reorder, experiment=experiment)
     
     train_loss = np.array(train_loss)
     val_loss = np.array(val_loss)
@@ -200,24 +200,24 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, pat
     return W, b, train_loss, val_loss, train_acc, val_acc
 
 
-def backup(GDparams, W, b, train_loss, val_loss, train_acc, val_acc, patience=0, annealing=False, reorder=False):
+def backup(GDparams, W, b, train_loss, val_loss, train_acc, val_acc, patience=0, annealing=False, reorder=False, experiment="mandatory"):
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams[
         "n_batch"], GDparams["eta"],  GDparams["lambda"]
     np.save(
-        f'History/weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', W)
+        f'History/{experiment}_weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', W)
     np.save(
-        f'History/bias_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', b)
+        f'History/{experiment}_bias_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', b)
     np.save(
-        f'History/train_loss_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', train_loss)
+        f'History/{experiment}_train_loss_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', train_loss)
     np.save(
-        f'History/val_loss_{epochs}_{batch_size}_{eta}_{patience}_{int(reorder)}_{int(annealing)}.npy', val_loss)
+        f'History/{experiment}_val_loss_{epochs}_{batch_size}_{eta}_{patience}_{int(reorder)}_{int(annealing)}.npy', val_loss)
     np.save(
-        f'History/train_acc_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', train_acc)
+        f'History/{experiment}_train_acc_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', train_acc)
     np.save(
-        f'History/val_acc_{epochs}_{batch_size}_{eta}_{patience}_{int(reorder)}_{int(annealing)}.npy', val_acc)
+        f'History/{experiment}_val_acc_{epochs}_{batch_size}_{eta}_{patience}_{int(reorder)}_{int(annealing)}.npy', val_acc)
 
 
-def plot_weights(W, GDparams, patience=0, annealing=False, reorder=False):
+def plot_weights(W, GDparams, patience=0, annealing=False, reorder=False, experiment="mandatory"):
 
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams[
         "n_batch"], GDparams["eta"],  GDparams["lambda"]
@@ -235,11 +235,11 @@ def plot_weights(W, GDparams, patience=0, annealing=False, reorder=False):
         axes1[k].imshow(s_im[i])
 
     plt.savefig(
-        f'History/weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
+        f'History/{experiment}_weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
     plt.show()
 
 
-def montage(W, GDparams, patience=0, annealing=False, reorder=False):
+def montage(W, GDparams, patience=0, annealing=False, reorder=False, experiment="mandatory"):
     """ Display the image for each label in W """
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams[
         "n_batch"], GDparams["eta"],  GDparams["lambda"]
@@ -253,11 +253,11 @@ def montage(W, GDparams, patience=0, annealing=False, reorder=False):
             ax[i][j].set_title("y="+str(5*i+j))
             ax[i][j].axis('off')
     plt.savefig(
-        f'History/weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
+        f'History/{experiment}_weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
     plt.show()
 
 
-def plot_metric(train_loss, val_loss, GDparams, patience=0, annealing=False, reorder=False, type="loss"):
+def plot_metric(train_loss, val_loss, GDparams, patience=0, annealing=False, reorder=False, type="loss", experiment="mandatory"):
 
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams[
         "n_batch"], GDparams["eta"],  GDparams["lambda"]
@@ -269,7 +269,7 @@ def plot_metric(train_loss, val_loss, GDparams, patience=0, annealing=False, reo
     plt.title(f"Monitoring of {type} during {len(val_loss)} epochs.")
     plt.legend()
     plt.savefig(
-        f'History/hist_{type}_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
+        f'History/{experiment}_hist_{type}_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
     plt.show()
 
 
