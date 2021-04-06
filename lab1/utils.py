@@ -187,7 +187,7 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, pat
             break
 
         if annealing:
-            update_eta(eta, gamma, freq, epoch)
+            eta = update_eta(eta, gamma, freq, epoch)
 
     backup(GDparams, W, b, train_loss, val_loss, train_acc,
            val_acc, patience=patience, annealing=annealing, reorder=reorder, experiment=experiment)
@@ -282,3 +282,4 @@ def early_stopping(val_loss, patience):
 def update_eta(eta, gamma, freq, epoch):
     if epoch % freq == 0:
         eta = gamma*eta
+    return eta
