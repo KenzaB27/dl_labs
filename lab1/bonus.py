@@ -30,7 +30,7 @@ def loadData(filename, reshape=False, clipping=False):
         X = X.T
 
     y = np.array(y)
-    # One hot Encoded labels
+    # One hot Encode labels
     Y = to_categorical(y, num_classes=10)
     Y = Y.T
 
@@ -79,6 +79,25 @@ def ComputeGradients(X, Y, P, W, _lambda):
 
     return grad_W, grad_b
 
+def ComputeGradientsHinge(X, Y, W, b, _lambda):
+    """ Computes gradients for hinge loss """
+    n_batch = X.shape[1]
+    scores = W @ X + b
+    yi_scores = scores[np.argmax(Y, axis=0), np.arange(X.shape[1])]
+    
+    margins = np.maximum(0, scores - np.asarray(yi_scores) + 1)
+    margins[np.argmax(Y, axis=0), np.arange(X.shape[1])] = 0
+
+    binary = margins
+    binary[margins > 0] = 1
+    row_sum = np.sum(binary, axis=0)
+    binary[np.argmax(Y, axis=0), np.arange(X.shape[1])] = -row_sum.T
+    
+    grad_W = binary @ X.T / n_batch + 2 * _lambda * W
+    gradb = np.sum(binary, axis=1)/n_batch
+
+    return grad_W, gradb
+
 
 def compare_gradients(ga, gn, eps):
     """ Compares analytical and numerical gradients given a certain epsilon """
@@ -109,7 +128,7 @@ def history(X, Y, y, X_val, Y_val, y_val, epoch, W, b, _lambda, train_loss, val_
     val_acc.append(v_acc)
 
 
-def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, experiment="mandatory"):
+def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, patience=0, annealing=False, reorder=False, loss="cross_entropy", experiment="mandatory"):
     """ Performas minibatch gradient descent """
     _, n = X.shape
 
@@ -119,10 +138,17 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, exp
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams[
         "n_batch"], GDparams["eta"],  GDparams["lambda"]
 
+    if annealing:
+        gamma = GDparams['eta_decay']
+        freq = GDparams['eta_decay_freq']
+
     history(X, Y, y,  X_val, Y_val, y_val, 0, W, b,
             _lambda, train_loss, val_loss, train_acc, val_acc, verbose)
 
     for epoch in tqdm(range(epochs)):
+        if reorder:
+            X, Y, y = shuffle(X.T, Y.T, y.T, random_state=epoch)
+            X, Y, y = X.T, Y.T, y.T
 
         for j in range(n//batch_size):
             j_start = j * batch_size
@@ -131,10 +157,12 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, exp
             Y_batch = Y[:, j_start:j_end]
 
             P_batch = EvaluateClassifier(X_batch, W, b)
-
-            grad_W, grad_b = ComputeGradients(
-            X_batch, Y_batch, P_batch, W, _lambda)
-
+            if loss == "cross_entropy":
+                grad_W, grad_b = ComputeGradients(
+                X_batch, Y_batch, P_batch, W, _lambda)
+            else:
+                grad_W, grad_b = ComputeGradientsHinge(
+                    X_batch, Y_batch, W, b, _lambda)
 
             W -= eta * grad_W
             b -= eta * grad_b.reshape(len(b), 1)
@@ -142,8 +170,15 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, exp
         history(X, Y, y,  X_val, Y_val, y_val, epoch, W,
                 b, _lambda, train_loss, val_loss, train_acc, val_acc, verbose)
 
+        if early_stopping(val_loss, patience) and patience > 0:
+            print(f"Early Stopping @ Epoch: {epoch}")
+            break
+
+        if annealing:
+            eta = update_eta(eta, gamma, freq, epoch)
+
     backup(GDparams, W, b, train_loss, val_loss, train_acc,
-           val_acc, experiment=experiment)
+           val_acc, patience=patience, annealing=annealing, reorder=reorder, experiment=experiment)
     
     train_loss = np.array(train_loss)
     val_loss = np.array(val_loss)
@@ -153,25 +188,25 @@ def minibatchGD(X, Y, y,  X_val, Y_val, y_val, GDparams, W, b, verbose=True, exp
     return W, b, train_loss, val_loss, train_acc, val_acc
 
 
-def backup(GDparams, W, b, train_loss, val_loss, train_acc, val_acc, experiment="mandatory"):
+def backup(GDparams, W, b, train_loss, val_loss, train_acc, val_acc, patience=0, annealing=False, reorder=False, experiment="mandatory"):
     """ Saves networks params in order to be able to reuse it """
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams[
         "n_batch"], GDparams["eta"],  GDparams["lambda"]
     np.save(
-        f'History/{experiment}_weights_{epochs}_{batch_size}_{eta}_{_lambda}.npy', W)
+        f'History/{experiment}_weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', W)
     np.save(
-        f'History/{experiment}_bias_{epochs}_{batch_size}_{eta}_{_lambda}.npy', b)
+        f'History/{experiment}_bias_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', b)
     np.save(
-        f'History/{experiment}_train_loss_{epochs}_{batch_size}_{eta}_{_lambda}.npy', train_loss)
+        f'History/{experiment}_train_loss_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', train_loss)
     np.save(
-        f'History/{experiment}_val_loss_{epochs}_{batch_size}_{eta}.npy', val_loss)
+        f'History/{experiment}_val_loss_{epochs}_{batch_size}_{eta}_{patience}_{int(reorder)}_{int(annealing)}.npy', val_loss)
     np.save(
-        f'History/{experiment}_train_acc_{epochs}_{batch_size}_{eta}_{_lambda}.npy', train_acc)
+        f'History/{experiment}_train_acc_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.npy', train_acc)
     np.save(
-        f'History/{experiment}_val_acc_{epochs}_{batch_size}_{eta}.npy', val_acc)
+        f'History/{experiment}_val_acc_{epochs}_{batch_size}_{eta}_{patience}_{int(reorder)}_{int(annealing)}.npy', val_acc)
 
 
-def montage(W, GDparams, experiment="mandatory"):
+def montage(W, GDparams, patience=0, annealing=False, reorder=False, experiment="mandatory"):
     """ Display the image for each label in W """
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams[
         "n_batch"], GDparams["eta"],  GDparams["lambda"]
@@ -185,11 +220,11 @@ def montage(W, GDparams, experiment="mandatory"):
             ax[i][j].set_title("y="+str(5*i+j))
             ax[i][j].axis('off')
     plt.savefig(
-        f'History/{experiment}_weights_{epochs}_{batch_size}_{eta}_{_lambda}.png')
+        f'History/{experiment}_weights_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
     plt.show()
 
 
-def plot_metric(train_loss, val_loss, GDparams, type="loss", experiment="mandatory"):
+def plot_metric(train_loss, val_loss, GDparams, patience=0, annealing=False, reorder=False, type="loss", experiment="mandatory"):
     """ Plots a given metric (loss or accuracy) """
     epochs, batch_size, eta, _lambda = GDparams["n_epochs"], GDparams[
         "n_batch"], GDparams["eta"],  GDparams["lambda"]
@@ -201,5 +236,19 @@ def plot_metric(train_loss, val_loss, GDparams, type="loss", experiment="mandato
     plt.title(f"Monitoring of {type} during {len(val_loss)} epochs.")
     plt.legend()
     plt.savefig(
-        f'History/{experiment}_hist_{type}_{epochs}_{batch_size}_{eta}_{_lambda}.png')
+        f'History/{experiment}_hist_{type}_{epochs}_{batch_size}_{eta}_{_lambda}_{patience}_{int(reorder)}_{int(annealing)}.png')
     plt.show()
+
+
+def early_stopping(val_loss, patience):
+    """ Gives an early stopping status """
+    if len(val_loss) > 2*patience:
+        return all(x < y for x, y in zip(val_loss[-patience:], val_loss[-patience+1:]))
+    return False
+
+
+def update_eta(eta, gamma, freq, epoch):
+    """ Performs Learning rate decay """
+    if epoch % freq == 0:
+        eta = gamma*eta
+    return eta
