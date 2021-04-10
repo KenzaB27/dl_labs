@@ -174,7 +174,7 @@ class MLP():
         _, n = X.shape
         epochs, batch_size, eta_min, eta_max, ns = GDparams["n_epochs"], GDparams[
             "n_batch"], GDparams["eta_min"], GDparams["eta_max"], GDparams["ns"]
-            
+
         eta = eta_min
         t, c = 0, 0
 
@@ -282,3 +282,23 @@ class MLP():
         majority_voting_class = [Counter(predictions[:, i]).most_common(1)[0][0] for i in range(X.shape[1])]
         return majority_voting_class, accuracy_score(y, majority_voting_class)
         
+    def estimateBoundaries(self, X, Y, y, X_val, Y_val, y_val, eta_min, eta_max, n_search, h, lamda, seed=42):
+        accuracies = []
+        etas = np.linspace(eta_min, eta_max, n_search)
+        for eta in etas:
+            GDparams = {"n_batch": 100, "n_epochs": 10, "eta_min": eta}
+            model = MLP(dims=[3072, h, 10], lamda=lamda, seed=seed)
+            model.minibatchGD(X, Y, y, X_val, Y_val, y_val, GDparams, verbose=False)
+            accuracies.append(model.val_acc[-1])
+        return etas, accuracies
+
+    def plotAccuracies(self, etas, accuracies, lamda, h):
+        plt.plot(etas, accuracies)
+        plt.xlabel("Learning Rate")
+        plt.ylabel("Accuracy")
+        plt.title(f'Accuracies vs learning rate - lamda={lamda} h={h}')
+        plt.legend()
+        plt.savefig(f'History/boundaries_{lamda}_{h}.png')
+        plt.show()
+
+
