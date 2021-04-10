@@ -203,3 +203,45 @@ def plot_metric(train_loss, val_loss, GDparams, type="loss", experiment="mandato
     plt.savefig(
         f'History/{experiment}_hist_{type}_{epochs}_{batch_size}_{eta}_{_lambda}.png')
     plt.show()
+
+    def compute_gradients_num(self, X_batch, Y_batch, labda=0, h=1e-7):
+        """Numerically computes the gradients of the weight and bias parameters
+        Args:
+            X_batch (np.ndarray): data batch matrix (D, N)
+            Y_batch (np.ndarray): one-hot-encoding labels batch vector (C, N)
+            W       (np.ndarray): the weight matrix
+            b       (np.ndarray): the bias matrix
+            labda        (float): penalty term
+            h            (float): marginal offset
+        Returns:
+            grad_W  (np.ndarray): the gradient of the weight parameter
+            grad_b  (np.ndarray): the gradient of the bias parameter
+        """
+        grads = {}
+        for j in range(1, 3):
+            selfW = getattr(self, 'W' + str(j))
+            selfB = getattr(self, 'b' + str(j))
+            grads['W' + str(j)] = np.zeros(selfW.shape)
+            grads['b' + str(j)] = np.zeros(selfB.shape)
+
+            b_try = np.copy(selfB)
+            for i in range(selfB.shape[0]):
+                selfB = b_try[:]
+                selfB[j] = selfB[j] + h
+                _, c2 = self.compute_cost(X_batch, Y_batch, labda)
+                getattr(self, 'b' + str(j)
+                        )[i] = getattr(self, 'b' + str(j))[i] - 2*h
+                _, c3 = self.compute_cost(X_batch, Y_batch, labda)
+                grads['b' + str(j)][i] = (c2-c3) / (2*h)
+
+            W_try = np.copy(selfW)
+            for i in np.ndindex(selfW.shape):
+                selfW = W_try[:, :]
+                selfW[i] = selfW[i] + h
+                _, c2 = self.compute_cost(X_batch, Y_batch, labda)
+                getattr(self, 'W' + str(j)
+                        )[i] = getattr(self, 'W' + str(j))[i] - 2*h
+                _, c3 = self.compute_cost(X_batch, Y_batch, labda)
+                grads['W' + str(j)][i] = (c2-c3) / (2*h)
+
+        return grads['W1'], grads['b1'], grads['W2'], grads['b2']
