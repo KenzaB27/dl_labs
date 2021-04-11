@@ -17,7 +17,7 @@ class Layer():
         self.b = b
         self.grad_W = grad_W
         self.grad_b = grad_b
-        self.x = x
+        self.input = input
 
 
 class MLP():
@@ -38,13 +38,12 @@ class MLP():
         self.train_acc, self.val_acc = [], []
 
     def forwardpass(self, X):
-        Xc = X.copy()
-        for i in range(self.k):
-            self.layers[i].x = np.maximum(
-                0, self.layers[i].W @ Xc + self.layers[i].b)
-            Xc = self.layers[i].x.copy()
-
-        return softmax(self.layers[-1].x)
+        input = X.copy()
+        for layer in self.layers:
+            layer.input = input
+            input = np.maximum(
+                0, layer.W @ layer.input + layer.b)
+        return softmax(input)
 
     def computeCost(self, X, Y):
         """ Computes the cost function: cross entropy loss + L2 regularization """
@@ -60,55 +59,49 @@ class MLP():
         G = - (Y - P)
         nb = X.shape[1]
 
-        for i in range(self.k-1, 0, -1):
-            self.layers[i].grad_W = G @ self.layers[i-1].x.T / \
-                nb + 2 * self.lamda * self.layers[i].W
-            self.layers[i].grad_b = (
-                np.sum(G, axis=1) / nb).reshape(self.layers[i].d_out, 1)
-            G = self.layers[i].W.T @ G
-            G = np.multiply(G, np.heaviside(self.layers[i-1].x, 0))
-
-        self.layers[0].grad_W = G @ X.T / nb + \
-            2 * self.lamda * self.layers[0].W
-        self.layers[0].grad_b = (
-            np.sum(G, axis=1) / nb).reshape(self.layers[0].d_out, 1)
+        for layer in reversed(self.layers):
+            layer.grad_W = G @ layer.input.T / nb + \
+                2 * self.lamda * layer.W
+            layer.grad_b = (
+                        np.sum(G, axis=1) / nb).reshape(layer.d_out, 1)
+            G = layer.W.T @ G
+            G = np.multiply(G, np.heaviside(layer.input, 0))
 
     def updateParameters(self, eta=1e-2):
-        for i in range(self.k):
-            self.layers[i].W -= eta * self.layers[i].grad_W
-            self.layers[i].b -= eta * self.layers[i].grad_b
+        for layer in self.layers:
+            layer.W -= eta * layer.grad_W
+            layer.b -= eta * layer.grad_b
 
     def computeGradientsNum(self, X, Y, h=1e-5):
         grad_bs, grad_Ws = [], []
 
-        for j in tqdm(range(self.k)):
-            grad_bs.append(np.zeros(self.layers[j].d_out))
-            for i in range(self.layers[j].d_out):
-                self.layers[j].b[i] -= h
+        for j, layer in tqdm(enumerate(self.layers)):
+            grad_bs.append(np.zeros(layer.d_out))
+            b_copy = np.copy(layer.b)
+            for i in range(layer.d_out):
+                layer.b[i] -= h
                 _, c1 = self.computeCost(X, Y)
 
-                self.layers[j].b[i] += 2 * h
+                layer.b[i] += h
                 _, c2 = self.computeCost(X, Y)
 
-                self.layers[j].b[i] -= h
-
                 grad_bs[j][i] = (c2 - c1) / (2*h)
+            layer.b = b_copy
 
-        for j in tqdm(range(self.k)):
+        for j, layer in tqdm(enumerate(self.layers)):
             grad_Ws.append(
-                np.zeros((self.layers[j].d_out, self.layers[j].d_in)))
-            for i in range(self.layers[j].d_out):
-                for l in range(self.layers[j].d_in):
-                    self.layers[j].W[i, l] -= h
+                np.zeros((layer.d_out, layer.d_in)))
+            W_copy = np.copy(layer.W) 
+            for i in range(layer.d_out):
+                for l in range(layer.d_in):
+                    layer.W[i, l] -= h
                     _, c1 = self.computeCost(X, Y)
 
-                    self.layers[j].W[i, l] += 2*h
+                    layer.W[i, l] += h
                     _, c2 = self.computeCost(X, Y)
 
-                    self.layers[j].W[i, l] -= h
-
                     grad_Ws[j][i, l] = (c2 - c1) / (2*h)
-
+            layer.W = W_copy
         return grad_Ws, grad_bs
 
     def compareGradients(self, X, Y, eps=1e-10, h=1e-5):
@@ -124,11 +117,11 @@ class MLP():
             vfunc = np.vectorize(_rel_error)
             return np.mean(vfunc(g1, g2, eps))
 
-        for i in range(self.k):
-            rerr_w.append(rel_error(self.layers[i].grad_W, gn_Ws[i], eps))
-            rerr_b.append(rel_error(self.layers[i].grad_b, gn_bs[i], eps))
-            aerr_w.append(np.mean(abs(self.layers[i].grad_W - gn_Ws[i])))
-            aerr_b.append(np.mean(abs(self.layers[i].grad_b - gn_bs[i])))
+        for i, layer in enumerate(self.layers):
+            rerr_w.append(rel_error(layer.grad_W, gn_Ws[i], eps))
+            rerr_b.append(rel_error(layer.grad_b, gn_bs[i], eps))
+            aerr_w.append(np.mean(abs(layer.grad_W - gn_Ws[i])))
+            aerr_b.append(np.mean(abs(layer.grad_b - gn_bs[i])))
 
         return rerr_w, rerr_b, aerr_w, aerr_b
 
