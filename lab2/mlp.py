@@ -47,10 +47,9 @@ class MLP():
     def computeCost(self, X, Y):
         """ Computes the cost function: cross entropy loss + L2 regularization """
         P = self.forwardpass(X)
-        loss = -np.log(np.sum(np.multiply(Y, P), axis=0))
-        loss = np.sum(loss)/X.shape[1]
-        r = np.sum([np.linalg.norm(self.layers[i].W)
-                    ** 2 for i in range(self.k)])
+        loss = np.log(np.sum(np.multiply(Y, P), axis=0))
+        loss = - np.sum(loss)/X.shape[1]
+        r = np.sum([np.linalg.norm(layer.W)** 2 for layer in self.layers])
         cost = loss + self.lamda * r
         return loss, cost
 
