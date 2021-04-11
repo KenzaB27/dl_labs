@@ -36,7 +36,6 @@ class MLP():
         self.train_loss, self.val_loss = [], []
         self.train_cost, self.val_cost = [], []
         self.train_acc, self.val_acc = [], []
-        self.models = []
 
     def forwardpass(self, X):
         Xc = X.copy()
@@ -143,7 +142,7 @@ class MLP():
         """ Performas minibatch gradient descent """
         _, n = X.shape
         epochs, batch_size, eta = GDparams["n_epochs"], GDparams[
-            "n_batch"], GDparams["eta_min"]
+            "n_batch"], GDparams["eta"]
 
         self.history(X, Y, y,  X_val, Y_val, y_val, 0, verbose)
 
@@ -286,7 +285,7 @@ class MLP():
         accuracies = []
         etas = np.linspace(eta_min, eta_max, n_search)
         for eta in etas:
-            GDparams = {"n_batch": 100, "n_epochs": 10, "eta_min": eta}
+            GDparams = {"n_batch": 100, "n_epochs": 3, "eta_min": eta, "eta_max":0, "ns":0}
             model = MLP(dims=[3072, h, 10], lamda=lamda, seed=seed)
             model.minibatchGD(X, Y, y, X_val, Y_val, y_val, GDparams, verbose=False)
             accuracies.append(model.val_acc[-1])
