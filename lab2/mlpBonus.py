@@ -1,10 +1,9 @@
-from itertools import cycle
 from sklearn.utils import shuffle
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score
 import numpy as np
 from tqdm import tqdm
-from collections import namedtuple
+from collections import Counter
 from utils import softmax
 from tqdm import tqdm
 
@@ -177,17 +176,19 @@ class MLP():
 
         _, n = X.shape
 
-        n_cycles, batch_size, eta_min, eta_max, ns, freq = GDparams["n_cycles"], GDparams[
-            "n_batch"], GDparams["eta_min"], GDparams["eta_max"], GDparams["ns"], GDparams['freq']
+        n_cycles, batch_size, eta_min, eta_max, ns, freq, exp = GDparams["n_cycles"], GDparams[
+            "n_batch"], GDparams["eta_min"], GDparams["eta_max"], GDparams["ns"], GDparams['freq'], GDparams['exp']
 
         eta = eta_min
-        t = 0
+        t, c = 0, 0
 
         epochs = batch_size * 2 * ns * n_cycles // n
 
         for epoch in tqdm(range(epochs)):
+
             X, Y, y = shuffle(X.T, Y.T, y.T, random_state=epoch)
             X, Y, y = X.T, Y.T, y.T
+
             for j in range(n//batch_size):
                 j_start = j * batch_size
                 j_end = (j+1) * batch_size
@@ -208,6 +209,11 @@ class MLP():
                     eta = eta_max - (t - ns)/ns * (eta_max - eta_min)
 
                 t = (t+1) % (2*ns)
+                if t == 0 and exp == "ensemble_learning":
+                    if verbose:
+                        print(f"Cycle {c} saved")
+                    self.backup_cyclic(GDparams, cycle=c)
+                    c += 1
         if backup:
             self.backup_cyclic(GDparams)
 
@@ -249,30 +255,30 @@ class MLP():
         np.save(
             f'History/{exp}_hist_{epochs}_{batch_size}_{eta}_{self.lamda}_{self.seed}.npy', hist)
 
-    def backup_cyclic(self, GDparams):
+    def backup_cyclic(self, GDparams, cycle=-1):
         """ Saves networks params in order to be able to reuse it for cyclic learning"""
 
         n_cycles, batch_size, eta_min, eta_max, ns, exp = GDparams["n_cycles"], GDparams[
             "n_batch"], GDparams["eta_min"], GDparams["eta_max"], GDparams["ns"], GDparams["exp"]
 
         np.save(
-            f'History/{exp}_layers_{n_cycles}_{batch_size}_{eta_min}_{eta_max}_{ns}_{self.lamda}_{self.seed}.npy', self.layers)
+            f'History/{exp}_layers_{n_cycles}_{cycle}_{batch_size}_{eta_min}_{eta_max}_{ns}_{self.lamda}_{self.seed}.npy', self.layers)
 
         hist = {"train_loss": self.train_loss, "train_acc": self.train_acc, "train_cost": self.train_cost,
                 "val_loss": self.val_loss, "val_acc": self.val_acc, "val_cost": self.val_cost}
 
         np.save(
-            f'History/{exp}_hist_{n_cycles}_{batch_size}_{eta_min}_{eta_max}_{ns}_{self.lamda}_{self.seed}.npy', hist)
+            f'History/{exp}_hist_{n_cycles}_{cycle}_{batch_size}_{eta_min}_{eta_max}_{ns}_{self.lamda}_{self.seed}.npy', hist)
 
     def plot_metric(self, GDparams, metric="loss", cyclic=True):
         """ Plots a given metric (loss or accuracy) """
-
+        
         if cyclic:
             n_cycles, batch_size, eta_min, eta_max, ns = GDparams["n_cycles"], GDparams[
                 "n_batch"], GDparams["eta_min"], GDparams["eta_max"], GDparams["ns"]
         else:
-            epochs, batch_size, eta = GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta"]
-
+            epochs, batch_size, eta= GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta"]
+        
         batch_size, exp = GDparams["n_batch"], GDparams['exp']
 
         if metric == "loss":
@@ -297,23 +303,22 @@ class MLP():
         plt.legend()
         if cyclic:
             plt.savefig(
-                f'History/{exp}_{metric}_{n_cycles}_{batch_size}_{eta_min}_{eta_max}_{ns}_{self.lamda}_{self.seed}.png')
+            f'History/{exp}_{metric}_{n_cycles}_{batch_size}_{eta_min}_{eta_max}_{ns}_{self.lamda}_{self.seed}.png')
         else:
             plt.savefig(
                 f'History/{exp}_{metric}_{epochs}_{batch_size}_{eta}_{self.lamda}_{self.seed}.png')
         plt.show()
 
     @staticmethod
-    def loadMLP(GDparams, cyclic=True, k=2, dims=[3072, 50, 10], lamda=0, seed=42):
+    def loadMLP(GDparams, cyclic=True, k=2, dims=[3072, 50, 10], lamda=0, seed=42, cycle=-1):
         mlp = MLP(k, dims, lamda, seed)
         if cyclic:
-
             n_cycles, batch_size, eta_min, eta_max, ns, exp = GDparams["n_cycles"], GDparams[
                 "n_batch"], GDparams["eta_min"], GDparams["eta_max"], GDparams["ns"], GDparams["exp"]
             layers = np.load(
-                f'History/{exp}_layers_{n_cycles}_{batch_size}_{eta_min}_{eta_max}_{ns}_{mlp.lamda}_{mlp.seed}.npy', allow_pickle=True)
+                f'History/{exp}_layers_{n_cycles}_{cycle}_{batch_size}_{eta_min}_{eta_max}_{ns}_{mlp.lamda}_{mlp.seed}.npy', allow_pickle=True)
             hist = np.load(
-                f'History/{exp}_hist_{n_cycles}_{batch_size}_{eta_min}_{eta_max}_{ns}_{mlp.lamda}_{mlp.seed}.npy', allow_pickle=True)
+                f'History/{exp}_hist_{n_cycles}_{cycle}_{batch_size}_{eta_min}_{eta_max}_{ns}_{mlp.lamda}_{mlp.seed}.npy', allow_pickle=True)
         else:
 
             epochs, batch_size, eta, exp = GDparams["n_epochs"], GDparams[
@@ -324,9 +329,9 @@ class MLP():
 
             hist = np.load(
                 f'History/{exp}_hist_{epochs}_{batch_size}_{eta}_{mlp.lamda}_{mlp.seed}.npy', allow_pickle=True)
-
-        mlp.layers = layers
-
+        
+        mlp.layers = layers 
+        
         mlp.train_acc = hist.item()['train_acc']
         mlp.train_loss = hist.item()["train_loss"]
         mlp.train_cost = hist.item()["train_cost"]
@@ -336,10 +341,43 @@ class MLP():
 
         return mlp
 
+    @staticmethod
+    def majorityVoting(X, y, GDparams, n_cycle=3, lamda=0.1):
+
+        predictions = []
+        for c in range(n_cycle):
+            model = MLP.loadMLP(GDparams, cyclic=True, cycle=c, lamda=lamda)
+            P = model.forwardpass(X)
+            predictions.append(np.argmax(P, axis=0))
+        predictions = np.array(predictions)
+        majority_voting_class = [Counter(predictions[:, i]).most_common(1)[
+            0][0] for i in range(X.shape[1])]
+        return majority_voting_class, accuracy_score(y, majority_voting_class)
+    
+    @staticmethod
+    def estimateBoundaries(data, eta_min, eta_max, n_search, h, lamda, seed=42):
+        accuracies = []
+        etas = np.linspace(eta_min, eta_max, n_search)
+        for eta in etas:
+            GDparams = {"n_batch": 100, "n_epochs": 3, "eta": eta, "exp":"boundaries"}
+            model = MLP(dims=[3072, h, 10], lamda=lamda, seed=seed)
+            model.minibatchGD(data, GDparams, verbose=False)
+            accuracies.append(model.val_acc[-1])
+        return etas, accuracies
+
+    @staticmethod
+    def plotAccuracies(etas, accuracies, lamda, h):
+        plt.plot(etas, accuracies)
+        plt.xlabel("Learning Rate")
+        plt.ylabel("Accuracy")
+        plt.title(f'Accuracies vs learning rate - lamda={lamda} h={h}')
+        plt.legend()
+        plt.savefig(f'History/boundaries_{lamda}_{h}.png')
+        plt.show()
 
 class Search():
 
-    def __init__(self, l_min, l_max, n_lambda, p1, params1, p2, params2):
+    def _init_(self, l_min, l_max, n_lambda, p1, params1, p2, params2):
         self.l_min = l_min
         self.l_max = l_max
         self.lambdas = []
@@ -350,27 +388,32 @@ class Search():
         self.params2 = params2
         self.models = {}
 
-    def sampleLambda(self):
+    def sample_lambda(self):
         r = self.l_min + (self.l_max - self.l_min) * \
             np.random.rand(self.n_lambda[0])
         self.lambdas = [10**i for i in r]
 
-    def randomSearch(self, data, GDparams):
-        self.sampleLambda()
-        for t in range(len(self.n_lambda)-1):
+    def random_search(self, data, GDparams):
+
+        self.sample_lambda()
+        for t, _ in enumerate(self.n_lambda):
             for lmda in self.lambdas:
                 if self.params1 and self.params2:
-                    self.gridSearch(data, GDparams, lmda)
+                    self.grid_search(data, GDparams, lmda)
                 else:
                     mlp = MLP(lamda=lmda)
                     mlp.cyclicLearning(data, GDparams, verbose=False, backup=False)
                     self.models.update({mlp.val_acc[-1]: mlp})
-            self.updateLambda(n=self.n_lambda[t+1])
+            try:
+                n = self.n_lambda[t+1]
+            except:
+                n = 3
+            self.update_lambda(n=n)
 
         max_key = max(self.models.keys())
         return self.models[max_key]
 
-    def gridSearch(self, data, GDparams, lmda):
+    def grid_search(self, data, GDparams, lmda):
 
         for param1 in self.params1:
             for param2 in self.params2:
@@ -381,10 +424,11 @@ class Search():
                     data, GDparams, verbose=False, backup=False)
                 self.models.update({mlp.val_acc[-1]: mlp})
 
-    def updateLambda(self, n, _min=1e-2, _max=1e-2):
+    def update_lambda(self, n, _min=1e-2, _max=1e-2):
         key = max(self.models.keys())
         lba = self.models[key].lamda
-        l_min = lba - _min
-        l_max = lba + _max
-        r = l_min + ((l_max - l_min) * np.random.rand(n))
+        l_min_ = lba-_min
+        l_max_ = lba+_max
+        r = l_min_ + ((l_max_ - l_min_)*np.random.rand(n))
         self.lambdas = [lmbda for lmbda in r]
+
