@@ -3,9 +3,10 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score
 import numpy as np
 from tqdm import tqdm
-from utils import softmax
-from tqdm import tqdm
 
+def softmax(x):
+    """ Standard definition of the softmax function """
+    return np.exp(x) / np.sum(np.exp(x), axis=0)
 
 class Layer():
     def __init__(self, d_in, d_out, W, b, grad_W, grad_b, x):
