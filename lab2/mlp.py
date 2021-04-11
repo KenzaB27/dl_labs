@@ -4,9 +4,11 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 from tqdm import tqdm
 
+
 def softmax(x):
     """ Standard definition of the softmax function """
     return np.exp(x) / np.sum(np.exp(x), axis=0)
+
 
 class Layer():
     def __init__(self, d_in, d_out, W, b, grad_W, grad_b, x):
@@ -49,7 +51,7 @@ class MLP():
         P = self.forwardpass(X)
         loss = np.log(np.sum(np.multiply(Y, P), axis=0))
         loss = - np.sum(loss)/X.shape[1]
-        r = np.sum([np.linalg.norm(layer.W)** 2 for layer in self.layers])
+        r = np.sum([np.linalg.norm(layer.W) ** 2 for layer in self.layers])
         cost = loss + self.lamda * r
         return loss, cost
 
@@ -61,7 +63,7 @@ class MLP():
             layer.grad_W = G @ layer.input.T / nb + \
                 2 * self.lamda * layer.W
             layer.grad_b = (
-                        np.sum(G, axis=1) / nb).reshape(layer.d_out, 1)
+                np.sum(G, axis=1) / nb).reshape(layer.d_out, 1)
             G = layer.W.T @ G
             G = np.multiply(G, np.heaviside(layer.input, 0))
 
@@ -81,7 +83,7 @@ class MLP():
                 layer.b = np.copy(b_copy)
                 layer.b[i] -= h
                 _, c1 = self.computeCost(X, Y)
-                
+
                 layer.b = np.copy(b_copy)
                 layer.b[i] += h
                 _, c2 = self.computeCost(X, Y)
@@ -92,7 +94,7 @@ class MLP():
             grad_Ws.append(
                 np.zeros((layer.d_out, layer.d_in)))
 
-            W_copy = np.copy(layer.W) 
+            W_copy = np.copy(layer.W)
             for i in range(layer.d_out):
                 for l in range(layer.d_in):
                     layer.W = np.copy(W_copy)
@@ -333,7 +335,48 @@ class MLP():
 
         return mlp
 
+    def compute_gradients_num(self, X_batch, Y_batch, h=1e-5):
+        """ Numerically computes the gradients of the weight and bias parameters
+        Args:
+            X_batch (np.ndarray): data batch matrix (n_dims, n_samples)
+            Y_batch (np.ndarray): one-hot-encoding labels batch vector (n_classes, n_samples)
+            h            (float): marginal offset
+        Returns:
+            grad_W  (np.ndarray): the gradient of the weight parameter
+            grad_b  (np.ndarray): the gradient of the bias parameter
+        """
+        grads = {}
+        for j, layer in enumerate(self.layers):
+            selfW = layer.W
+            selfB = layer.b
+            grads['W' + str(j)] = np.zeros(selfW.shape)
+            grads['b' + str(j)] = np.zeros(selfB.shape)
 
+            b_try = np.copy(selfB)
+            for i in range(selfB.shape[0]):
+                layer.b = np.copy(b_try)
+                layer.b[i] += h
+                _, c1 = self.computeCost(X_batch, Y_batch)
+                layer.b = np.copy(b_try)
+                layer.b[i] -= h
+                _, c2 = self.computeCost(X_batch, Y_batch)
+                grads['b' + str(j)][i] = (c1-c2) / (2*h)
+            layer.b = b_try
+
+            W_try = np.copy(selfW)
+            for i in np.ndindex(selfW.shape):
+                layer.W = np.copy(W_try)
+                layer.W[i] += h
+                _, c1 = self.computeCost(X_batch, Y_batch)
+                layer.W = np.copy(W_try)
+                layer.W[i] -= h
+                _, c2 = self.computeCost(X_batch, Y_batch)
+                grads['W' + str(j)][i] = (c1-c2) / (2*h)
+            layer.W = W_try
+
+        return grads['W0'], grads['b0'], grads['W1'], grads['b1']
+
+    
 class Search():
 
     def __init__(self, l_min, l_max, n_lambda, p1, params1, p2, params2):
@@ -360,7 +403,8 @@ class Search():
                     self.gridSearch(data, GDparams, lmda)
                 else:
                     mlp = MLP(lamda=lmda)
-                    mlp.cyclicLearning(data, GDparams, verbose=False, backup=False)
+                    mlp.cyclicLearning(
+                        data, GDparams, verbose=False, backup=False)
                     self.models.update({mlp.val_acc[-1]: mlp})
             self.updateLambda(n=self.n_lambda[t+1])
 
