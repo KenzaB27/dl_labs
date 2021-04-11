@@ -1,10 +1,8 @@
-from itertools import cycle
 from sklearn.utils import shuffle
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score
 import numpy as np
 from tqdm import tqdm
-from collections import namedtuple
 from utils import softmax
 from tqdm import tqdm
 
@@ -40,7 +38,7 @@ class MLP():
     def forwardpass(self, X):
         input = X.copy()
         for layer in self.layers:
-            layer.input = input
+            layer.input = input.copy()
             input = np.maximum(
                 0, layer.W @ layer.input + layer.b)
         return softmax(input)
@@ -77,7 +75,7 @@ class MLP():
 
         for j, layer in tqdm(enumerate(self.layers)):
             grad_bs.append(np.zeros(layer.d_out))
-            
+
             b_copy = np.copy(layer.b)
             for i in range(layer.d_out):
                 layer.b = np.copy(b_copy)
