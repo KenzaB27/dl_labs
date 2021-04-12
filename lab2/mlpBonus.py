@@ -40,7 +40,7 @@ class MLP():
         self.train_cost, self.val_cost = [], []
         self.train_acc, self.val_acc = [], []
 
-    def forwardpass(self, X):
+    def forward_pass(self, X):
         input = X.copy()
         for layer in self.layers:
             layer.input = input.copy()
@@ -48,16 +48,16 @@ class MLP():
                 0, layer.W @ layer.input + layer.b)
         return softmax(layer.W @ layer.input + layer.b)
 
-    def computeCost(self, X, Y):
+    def compute_cost(self, X, Y):
         """ Computes the cost function: cross entropy loss + L2 regularization """
-        P = self.forwardpass(X)
+        P = self.forward_pass(X)
         loss = np.log(np.sum(np.multiply(Y, P), axis=0))
         loss = - np.sum(loss)/X.shape[1]
         r = np.sum([np.linalg.norm(layer.W) ** 2 for layer in self.layers])
         cost = loss + self.lamda * r
         return loss, cost
 
-    def computeGradients(self, X, Y, P):
+    def compute_gradients(self, X, Y, P):
         G = - (Y - P)
         nb = X.shape[1]
 
@@ -69,12 +69,12 @@ class MLP():
             G = layer.W.T @ G
             G = np.multiply(G, np.heaviside(layer.input, 0))
 
-    def updateParameters(self, eta=1e-2):
+    def update_parameters(self, eta=1e-2):
         for layer in self.layers:
             layer.W -= eta * layer.grad_W
             layer.b -= eta * layer.grad_b
 
-    def computeGradientsNum(self, X_batch, Y_batch, h=1e-5):
+    def compute_gradients_num(self, X_batch, Y_batch, h=1e-5):
         """ Numerically computes the gradients of the weight and bias parameters
         Args:
             X_batch (np.ndarray): data batch matrix (n_dims, n_samples)
@@ -95,10 +95,10 @@ class MLP():
             for i in range(selfB.shape[0]):
                 layer.b = np.copy(b_try)
                 layer.b[i] += h
-                _, c1 = self.computeCost(X_batch, Y_batch)
+                _, c1 = self.compute_cost(X_batch, Y_batch)
                 layer.b = np.copy(b_try)
                 layer.b[i] -= h
-                _, c2 = self.computeCost(X_batch, Y_batch)
+                _, c2 = self.compute_cost(X_batch, Y_batch)
                 grads['b' + str(j)][i] = (c1-c2) / (2*h)
             layer.b = b_try
 
@@ -106,18 +106,18 @@ class MLP():
             for i in np.ndindex(selfW.shape):
                 layer.W = np.copy(W_try)
                 layer.W[i] += h
-                _, c1 = self.computeCost(X_batch, Y_batch)
+                _, c1 = self.compute_cost(X_batch, Y_batch)
                 layer.W = np.copy(W_try)
                 layer.W[i] -= h
-                _, c2 = self.computeCost(X_batch, Y_batch)
+                _, c2 = self.compute_cost(X_batch, Y_batch)
                 grads['W' + str(j)][i] = (c1-c2) / (2*h)
             layer.W = W_try
 
         return grads
 
-    def compareGradients(self, X, Y, eps=1e-10, h=1e-5):
+    def compare_gradients(self, X, Y, eps=1e-10, h=1e-5):
         """ Compares analytical and numerical gradients given a certain epsilon """
-        gn = self.computeGradientsNum(X, Y, h)
+        gn = self.compute_gradients_num(X, Y, h)
         rerr_w, rerr_b = [], []
         aerr_w, aerr_b = [], []
 
@@ -136,13 +136,13 @@ class MLP():
 
         return rerr_w, rerr_b, aerr_w, aerr_b
 
-    def computeAccuracy(self, X, y):
+    def compute_accuracy(self, X, y):
         """ Computes the prediction accuracy of a given state of the network """
-        P = self.forwardpass(X)
+        P = self.forward_pass(X)
         y_pred = np.argmax(P, axis=0)
         return accuracy_score(y, y_pred)
-
-    def minibatchGD(self, data, GDparams, verbose=True, backup=False):
+    
+    def mini_batch_gd(self, data, GDparams, verbose=True, backup=False):
         """ Performas minibatch gradient descent """
 
         X, Y, y = data["X_train"], data["Y_train"], data["y_train"]
@@ -175,7 +175,7 @@ class MLP():
         if backup:
             self.backup(GDparams)
 
-    def cyclicLearning(self, data, GDparams, verbose=True, backup=False):
+    def cyclic_learning(self, data, GDparams, verbose=True, backup=False):
         """ Performas minibatch gradient descent """
         X, Y, y = data["X_train"], data["Y_train"], data["y_train"]
 
@@ -315,7 +315,7 @@ class MLP():
         plt.show()
 
     @staticmethod
-    def loadMLP(GDparams, cyclic=True, k=2, dims=[3072, 50, 10], lamda=0, seed=42, cycle=-1):
+    def load_mlp(GDparams, cyclic=True, k=2, dims=[3072, 50, 10], lamda=0, seed=42, cycle=-1):
         mlp = MLP(k, dims, lamda, seed)
         if cyclic:
             n_cycles, batch_size, eta_min, eta_max, ns, exp = GDparams["n_cycles"], GDparams[
@@ -351,7 +351,7 @@ class MLP():
 
         predictions = []
         for c in range(n_cycle):
-            model = MLP.loadMLP(GDparams, cyclic=True, cycle=c, lamda=lamda)
+            model = MLP.load_mlp(GDparams, cyclic=True, cycle=c, lamda=lamda)
             P = model.forwardpass(X)
             predictions.append(np.argmax(P, axis=0))
         predictions = np.array(predictions)
@@ -360,19 +360,19 @@ class MLP():
         return majority_voting_class, accuracy_score(y, majority_voting_class)
 
     @staticmethod
-    def estimateBoundaries(data, eta_min, eta_max, n_search, h, lamda, seed=42):
+    def estimate_boundaries(data, eta_min, eta_max, n_search, h, lamda, seed=42):
         accuracies = []
         etas = np.linspace(eta_min, eta_max, n_search)
         for eta in etas:
             GDparams = {"n_batch": 100, "n_epochs": 3,
                         "eta": eta, "exp": "boundaries"}
             model = MLP(dims=[3072, h, 10], lamda=lamda, seed=seed)
-            model.minibatchGD(data, GDparams, verbose=False)
+            model.mini_batch_gd(data, GDparams, verbose=False)
             accuracies.append(model.val_acc[-1])
         return etas, accuracies
 
     @staticmethod
-    def plotAccuracies(etas, accuracies, lamda, h):
+    def plot_accuracies(etas, accuracies, lamda, h):
         plt.plot(etas, accuracies)
         plt.xlabel("Learning Rate")
         plt.ylabel("Accuracy")
@@ -409,7 +409,7 @@ class Search():
                     self.grid_search(data, GDparams, lmda)
                 else:
                     mlp = MLP(lamda=lmda)
-                    mlp.cyclicLearning(
+                    mlp.cyclic_learning(
                         data, GDparams, verbose=False, backup=False)
                     self.models.update({mlp.val_acc[-1]: mlp})
             try:
@@ -428,7 +428,7 @@ class Search():
                 GDparams[self.p1] = param1
                 GDparams[self.p2] = param2
                 mlp = MLP(lamda=lmda)
-                mlp.cyclicLearning(
+                mlp.cyclic_learning(
                     data, GDparams, verbose=False, backup=False)
                 self.models.update({mlp.val_acc[-1]: mlp})
 
