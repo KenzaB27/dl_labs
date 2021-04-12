@@ -201,7 +201,7 @@ class MLP():
                 self.computeGradients(X_batch, Y_batch, P_batch)
                 self.updateParameters(eta)
 
-                if t % (2*ns/freq) == 0:
+                if t % (2*ns//freq) == 0:
                     self.history(data, t, verbose)
 
                 if t <= ns:
