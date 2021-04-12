@@ -39,6 +39,7 @@ class MLP():
         self.train_loss, self.val_loss = [], []
         self.train_cost, self.val_cost = [], []
         self.train_acc, self.val_acc = [], []
+        self.etas = []
 
     def forward_pass(self, X):
         input = X.copy()
@@ -164,11 +165,11 @@ class MLP():
                 X_batch = X[:, j_start:j_end]
                 Y_batch = Y[:, j_start:j_end]
 
-                P_batch = self.forwardpass(X_batch)
+                P_batch = self.forward_pass(X_batch)
 
-                self.computeGradients(X_batch, Y_batch, P_batch)
+                self.compute_gradients(X_batch, Y_batch, P_batch)
 
-                self.updateParameters(eta)
+                self.update_parameters(eta)
 
             self.history(data, epoch, verbose, cyclic=False)
 
@@ -200,10 +201,10 @@ class MLP():
                 X_batch = X[:, j_start:j_end]
                 Y_batch = Y[:, j_start:j_end]
 
-                P_batch = self.forwardpass(X_batch)
+                P_batch = self.forward_pass(X_batch)
 
-                self.computeGradients(X_batch, Y_batch, P_batch)
-                self.updateParameters(eta)
+                self.compute_gradients(X_batch, Y_batch, P_batch)
+                self.update_parameters(eta)
 
                 if t % (2*ns/freq) == 0:
                     self.history(data, t, verbose)
@@ -228,11 +229,11 @@ class MLP():
         X, Y, y, X_val, Y_val, y_val = data["X_train"], data["Y_train"], data[
             "y_train"], data["X_val"], data["Y_val"], data["y_val"]
 
-        t_loss, t_cost = self.computeCost(X, Y)
-        v_loss, v_cost = self.computeCost(X_val, Y_val)
+        t_loss, t_cost = self.compute_cost(X, Y)
+        v_loss, v_cost = self.compute_cost(X_val, Y_val)
 
-        t_acc = self.computeAccuracy(X, y)
-        v_acc = self.computeAccuracy(X_val, y_val)
+        t_acc = self.compute_accuracy(X, y)
+        v_acc = self.compute_accuracy(X_val, y_val)
 
         if verbose:
             pref = "Update Step " if cyclic else "Epoch "
@@ -347,36 +348,59 @@ class MLP():
         return mlp
 
     @staticmethod
-    def majorityVoting(X, y, GDparams, n_cycle=3, lamda=0.1):
+    def majority_voting(X, y, GDparams, n_cycle=3, lamda=0.1):
 
         predictions = []
         for c in range(n_cycle):
             model = MLP.load_mlp(GDparams, cyclic=True, cycle=c, lamda=lamda)
-            P = model.forwardpass(X)
+            P = model.forward_pass(X)
             predictions.append(np.argmax(P, axis=0))
         predictions = np.array(predictions)
         majority_voting_class = [Counter(predictions[:, i]).most_common(1)[
             0][0] for i in range(X.shape[1])]
         return majority_voting_class, accuracy_score(y, majority_voting_class)
 
-    @staticmethod
-    def estimate_boundaries(data, eta_min, eta_max, n_search, h, lamda, seed=42):
-        accuracies = []
-        etas = np.linspace(eta_min, eta_max, n_search)
-        for eta in etas:
-            GDparams = {"n_batch": 100, "n_epochs": 3,
-                        "eta": eta, "exp": "boundaries"}
-            model = MLP(dims=[3072, h, 10], lamda=lamda, seed=seed)
-            model.mini_batch_gd(data, GDparams, verbose=False)
-            accuracies.append(model.val_acc[-1])
-        return etas, accuracies
+    def lr_range_test(self, data, GDparams, verbose=True):
+        
+        X, Y, y = data["X_train"], data["Y_train"], data["y_train"]
+
+        _, n = X.shape
+
+        epochs, batch_size, eta_min, eta_max = GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta_min"],  GDparams["eta_max"]
+
+        delta_eta = (eta_max - eta_min) / (n//batch_size * epochs)
+        eta = eta_min
+        etas = [eta]
+        self.history(data, 0, verbose, cyclic=False)
+
+        for epoch in tqdm(range(epochs)):
+
+            X, Y, y = shuffle(X.T, Y.T, y.T, random_state=epoch)
+            X, Y, y = X.T, Y.T, y.T
+
+            for j in range(n//batch_size):
+                j_start = j * batch_size
+                j_end = (j+1) * batch_size
+                X_batch = X[:, j_start:j_end]
+                Y_batch = Y[:, j_start:j_end]
+
+                P_batch = self.forward_pass(X_batch)
+
+                self.compute_gradients(X_batch, Y_batch, P_batch)
+
+                self.update_parameters(eta)
+                eta += delta_eta
+                etas.append(eta)
+
+                self.history(data, epoch, verbose, cyclic=False)
+        return etas, self.val_acc
 
     @staticmethod
-    def plot_accuracies(etas, accuracies, lamda, h):
+    def plot_accuracies(etas, accuracies, lamda, h, metric="Accuracy"):
         plt.plot(etas, accuracies)
         plt.xlabel("Learning Rate")
-        plt.ylabel("Accuracy")
-        plt.title(f'Accuracies vs learning rate - lamda={lamda} h={h}')
+        plt.ylabel(metric)
+        plt.title(f'{metric} vs learning rate - lamda={lamda} h={h}')
         plt.legend()
         plt.savefig(f'History/boundaries_{lamda}_{h}.png')
         plt.show()
