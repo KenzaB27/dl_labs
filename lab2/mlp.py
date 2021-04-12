@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score
 import numpy as np
 from tqdm import tqdm
+from collections import defaultdict
 
 
 def softmax(x):
@@ -341,53 +342,43 @@ class MLP():
     
 class Search():
 
-    def __init__(self, l_min, l_max, n_lambda, p1, params1, p2, params2):
+    def __init__(self, l_min=-5, l_max=-1, n_lambda=20, sample=True, seed=42):
+        np.random.seed(seed)
         self.l_min = l_min
         self.l_max = l_max
-        self.lambdas = []
         self.n_lambda = n_lambda
-        self.p1 = p1
-        self.params1 = params1
-        self.p2 = p2
-        self.params2 = params2
-        self.models = {}
+        if sample:
+            self.lambdas = self.sample_lambda()
+        else: 
+            self.lambdas = np.linspace(l_min, l_max, num=n_lambda)
 
     def sample_lambda(self):
         exp = self.l_min + (self.l_max - self.l_min) * \
-            np.random.rand(self.n_lambda[0])
-        self.lambdas = [10**e for e in exp]
+            np.random.rand(self.n_lambda)
+        lambdas = [10**e for e in exp]
+        return lambdas
 
-    def random_search(self, data, GDparams):
-        self.sample_lambda()
-        for t in range(len(self.n_lambda)-1):
-            for lmda in self.lambdas:
-                if self.params1 and self.params2:
-                    self.grid_search(data, GDparams, lmda)
-                else:
-                    mlp = MLP(lamda=lmda)
-                    mlp.cyclic_learning(
-                        data, GDparams, verbose=False, backup=True)
-                    self.models.update({mlp.val_acc[-1]: mlp})
-            self.update_lambda(n=self.n_lambda[t+1])
+    def random_search(self, data, GDparams, lamdas=None):
+        if lamdas is not None:
+            self.lambdas = lamdas
+        for lmda in self.lambdas:
+            mlp = MLP(lamda=lmda)
+            mlp.cyclic_learning(
+                data, GDparams, verbose=False, backup=True)
 
-        max_key = max(self.models.keys())
-        return self.models[max_key]
+    def random_search_perf(self, GDparams, lamdas=None):
+        if lamdas is not None:
+            self.lambdas = lamdas
+        models = defaultdict(list)
+        for lmda in self.lambdas:
+            model = MLP.load_mlp(GDparams, cyclic=True, lamda=lmda)
+            models[model.val_acc[-1]*100
+                ].append({"lamda": round(lmda,7), "train_acc": round(model.train_acc[-1]*100, 5)})
+        for acc in sorted(models.keys(), reverse=True):
+            for v in models[acc]:
+                print(f'{v["lamda"]} & {v["train_acc"]} & {round(acc,5)} \\\\')
+        
 
-    def grid_search(self, data, GDparams, lmda):
 
-        for param1 in self.params1:
-            for param2 in self.params2:
-                GDparams[self.p1] = param1
-                GDparams[self.p2] = param2
-                mlp = MLP(lamda=lmda)
-                mlp.cyclic_learning(
-                    data, GDparams, verbose=False, backup=False)
-                self.models.update({mlp.val_acc[-1]: mlp})
 
-    def update_lambda(self, n, _min=1e-2, _max=1e-2):
-        key = max(self.models.keys())
-        lba = self.models[key].lamda
-        l_min = lba - _min
-        l_max = lba + _max
-        r = l_min + ((l_max - l_min) * np.random.rand(n))
-        self.lambdas = [lmbda for lmbda in r]
+ 
