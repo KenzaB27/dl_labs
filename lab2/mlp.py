@@ -44,7 +44,7 @@ class MLP():
             layer.input = input.copy()
             input = np.maximum(
                 0, layer.W @ layer.input + layer.b)
-        return softmax(input)
+        return softmax(layer.W @ layer.input + layer.b)
 
     def computeCost(self, X, Y):
         """ Computes the cost function: cross entropy loss + L2 regularization """
@@ -72,47 +72,50 @@ class MLP():
             layer.W -= eta * layer.grad_W
             layer.b -= eta * layer.grad_b
 
-    def computeGradientsNum(self, X, Y, h=1e-5):
-        grad_bs, grad_Ws = [], []
+    def computeGradientsNum(self, X_batch, Y_batch, h=1e-5):
+        """ Numerically computes the gradients of the weight and bias parameters
+        Args:
+            X_batch (np.ndarray): data batch matrix (n_dims, n_samples)
+            Y_batch (np.ndarray): one-hot-encoding labels batch vector (n_classes, n_samples)
+            h            (float): marginal offset
+        Returns:
+            grad_W  (np.ndarray): the gradient of the weight parameter
+            grad_b  (np.ndarray): the gradient of the bias parameter
+        """
+        grads = {}
+        for j, layer in enumerate(self.layers):
+            selfW = layer.W
+            selfB = layer.b
+            grads['W' + str(j)] = np.zeros(selfW.shape)
+            grads['b' + str(j)] = np.zeros(selfB.shape)
 
-        for j, layer in tqdm(enumerate(self.layers)):
-            grad_bs.append(np.zeros(layer.d_out))
-
-            b_copy = np.copy(layer.b)
-            for i in range(layer.d_out):
-                layer.b = np.copy(b_copy)
-                layer.b[i] -= h
-                _, c1 = self.computeCost(X, Y)
-
-                layer.b = np.copy(b_copy)
+            b_try = np.copy(selfB)
+            for i in range(selfB.shape[0]):
+                layer.b = np.copy(b_try)
                 layer.b[i] += h
-                _, c2 = self.computeCost(X, Y)
+                _, c1 = self.computeCost(X_batch, Y_batch)
+                layer.b = np.copy(b_try)
+                layer.b[i] -= h
+                _, c2 = self.computeCost(X_batch, Y_batch)
+                grads['b' + str(j)][i] = (c1-c2) / (2*h)
+            layer.b = b_try
 
-                grad_bs[j][i] = (c2 - c1) / (2*h)
-            layer.b = b_copy
+            W_try = np.copy(selfW)
+            for i in np.ndindex(selfW.shape):
+                layer.W = np.copy(W_try)
+                layer.W[i] += h
+                _, c1 = self.computeCost(X_batch, Y_batch)
+                layer.W = np.copy(W_try)
+                layer.W[i] -= h
+                _, c2 = self.computeCost(X_batch, Y_batch)
+                grads['W' + str(j)][i] = (c1-c2) / (2*h)
+            layer.W = W_try
 
-            grad_Ws.append(
-                np.zeros((layer.d_out, layer.d_in)))
-
-            W_copy = np.copy(layer.W)
-            for i in range(layer.d_out):
-                for l in range(layer.d_in):
-                    layer.W = np.copy(W_copy)
-                    layer.W[i, l] -= h
-                    _, c1 = self.computeCost(X, Y)
-
-                    layer.W = np.copy(W_copy)
-                    layer.W[i, l] += h
-                    _, c2 = self.computeCost(X, Y)
-
-                    grad_Ws[j][i, l] = (c2 - c1) / (2*h)
-            layer.W = W_copy
-
-        return grad_Ws, grad_bs
+        return grads
 
     def compareGradients(self, X, Y, eps=1e-10, h=1e-5):
         """ Compares analytical and numerical gradients given a certain epsilon """
-        gn_Ws, gn_bs = self.computeGradientsNum(X, Y, h)
+        gn = self.computeGradientsNum(X, Y, h)
         rerr_w, rerr_b = [], []
         aerr_w, aerr_b = [], []
 
@@ -124,10 +127,10 @@ class MLP():
             return np.mean(vfunc(g1, g2, eps))
 
         for i, layer in enumerate(self.layers):
-            rerr_w.append(rel_error(layer.grad_W, gn_Ws[i], eps))
-            rerr_b.append(rel_error(layer.grad_b, gn_bs[i], eps))
-            aerr_w.append(np.mean(abs(layer.grad_W - gn_Ws[i])))
-            aerr_b.append(np.mean(abs(layer.grad_b - gn_bs[i])))
+            rerr_w.append(rel_error(layer.grad_W, gn[f'W{i}'], eps))
+            rerr_b.append(rel_error(layer.grad_b, gn[f'b{i}'], eps))
+            aerr_w.append(np.mean(abs(layer.grad_W - gn[f'W{i}'])))
+            aerr_b.append(np.mean(abs(layer.grad_b - gn[f'b{i}'])))
 
         return rerr_w, rerr_b, aerr_w, aerr_b
 
@@ -334,47 +337,6 @@ class MLP():
         mlp.val_cost = hist.item()["val_cost"]
 
         return mlp
-
-    def compute_gradients_num(self, X_batch, Y_batch, h=1e-5):
-        """ Numerically computes the gradients of the weight and bias parameters
-        Args:
-            X_batch (np.ndarray): data batch matrix (n_dims, n_samples)
-            Y_batch (np.ndarray): one-hot-encoding labels batch vector (n_classes, n_samples)
-            h            (float): marginal offset
-        Returns:
-            grad_W  (np.ndarray): the gradient of the weight parameter
-            grad_b  (np.ndarray): the gradient of the bias parameter
-        """
-        grads = {}
-        for j, layer in enumerate(self.layers):
-            selfW = layer.W
-            selfB = layer.b
-            grads['W' + str(j)] = np.zeros(selfW.shape)
-            grads['b' + str(j)] = np.zeros(selfB.shape)
-
-            b_try = np.copy(selfB)
-            for i in range(selfB.shape[0]):
-                layer.b = np.copy(b_try)
-                layer.b[i] += h
-                _, c1 = self.computeCost(X_batch, Y_batch)
-                layer.b = np.copy(b_try)
-                layer.b[i] -= h
-                _, c2 = self.computeCost(X_batch, Y_batch)
-                grads['b' + str(j)][i] = (c1-c2) / (2*h)
-            layer.b = b_try
-
-            W_try = np.copy(selfW)
-            for i in np.ndindex(selfW.shape):
-                layer.W = np.copy(W_try)
-                layer.W[i] += h
-                _, c1 = self.computeCost(X_batch, Y_batch)
-                layer.W = np.copy(W_try)
-                layer.W[i] -= h
-                _, c2 = self.computeCost(X_batch, Y_batch)
-                grads['W' + str(j)][i] = (c1-c2) / (2*h)
-            layer.W = W_try
-
-        return grads['W0'], grads['b0'], grads['W1'], grads['b1']
 
     
 class Search():
