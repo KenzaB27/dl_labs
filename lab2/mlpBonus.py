@@ -176,7 +176,7 @@ class MLP():
         if backup:
             self.backup(GDparams)
 
-    def cyclic_learning(self, data, GDparams, verbose=True, backup=False):
+    def cyclic_learning(self, data, GDparams, verbose=True, backup=False, jitter=False):
         """ Performas minibatch gradient descent """
         X, Y, y = data["X_train"], data["Y_train"], data["y_train"]
 
@@ -200,11 +200,17 @@ class MLP():
                 j_end = (j+1) * batch_size
                 X_batch = X[:, j_start:j_end]
                 Y_batch = Y[:, j_start:j_end]
-
+                X_batch_copy = X_batch.copy()
+                
+                if jitter and np.random.random() > 0.5:
+                    X_batch = self.random_jitter(X_batch, flip=np.random.random())
+                
                 P_batch = self.forward_pass(X_batch)
 
                 self.compute_gradients(X_batch, Y_batch, P_batch)
                 self.update_parameters(eta)
+
+                X_batch = X_batch_copy
 
                 if t % (2*ns/freq) == 0:
                     self.history(data, t, verbose)
@@ -410,7 +416,21 @@ class MLP():
         plt.legend()
         plt.savefig(f'History/boundaries_{lamda}_{h}.png')
         plt.show()
-
+    
+    @staticmethod
+    def random_jitter(X, flip=0, sigma=1):
+        X_jitter = np.copy(X) 
+        noise = np.random.normal(0, sigma, (X.shape))
+        X_jitter += noise
+        mean, std = np.mean(X_jitter, axis=1), np.std(X_jitter, axis = 1)
+        X_jitter -= np.outer(mean, np.ones(X_jitter.shape[1]))
+        X_jitter /= np.outer(std, np.ones(X.shape[1]))
+        # d, n_batch = X.shape
+        # if flip > 0.5:
+        #     X_jitter = X_jitter.reshape(n_batch, 3, 32, 32).transpose(0, 2, 3, 1)
+        #     X_jitter = np.array([np.fliplr(X_jitter[i]) for i in range(n_batch)])
+        #     X_jitter = X_jitter.reshape((d, n_batch))
+        return X_jitter
 
 class Search():
 
