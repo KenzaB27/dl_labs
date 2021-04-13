@@ -142,7 +142,7 @@ class MLP():
         P = self.forward_pass(X)
         y_pred = np.argmax(P, axis=0)
         return accuracy_score(y, y_pred)
-    
+
     def mini_batch_gd(self, data, GDparams, verbose=True, backup=False):
         """ Performas minibatch gradient descent """
 
@@ -360,18 +360,21 @@ class MLP():
             0][0] for i in range(X.shape[1])]
         return majority_voting_class, accuracy_score(y, majority_voting_class)
 
-    def lr_range_test(self, data, GDparams, verbose=True):
-        
-        X, Y, y = data["X_train"], data["Y_train"], data["y_train"]
+    def lr_range_test(self, data, GDparams, freq=20):
+
+        X, Y, y, X_val, y_val = data["X_train"], data["Y_train"], data["y_train"], data["X_val"], data["y_val"],
 
         _, n = X.shape
 
-        epochs, batch_size, eta_min, eta_max = GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta_min"],  GDparams["eta_max"]
+        epochs, batch_size, eta_min, eta_max = GDparams["n_epochs"], GDparams[
+            "n_batch"], GDparams["eta_min"],  GDparams["eta_max"]
 
-        delta_eta = (eta_max - eta_min) / (n//batch_size * epochs)
+        delta_eta = (eta_max - eta_min) / (n//batch_size * epochs) * freq
         eta = eta_min
         etas = [eta]
-        self.history(data, 0, verbose, cyclic=False)
+
+        v_acc = self.compute_accuracy(X_val, y_val)
+        self.val_acc.append(v_acc)
 
         for epoch in tqdm(range(epochs)):
 
@@ -389,10 +392,13 @@ class MLP():
                 self.compute_gradients(X_batch, Y_batch, P_batch)
 
                 self.update_parameters(eta)
-                eta += delta_eta
-                etas.append(eta)
+                if j % freq == 0:
+                    eta += delta_eta
+                    etas.append(eta)
 
-                self.history(data, epoch, verbose, cyclic=False)
+                    v_acc = self.compute_accuracy(X_val, y_val)
+                    self.val_acc.append(v_acc)
+
         return etas, self.val_acc
 
     @staticmethod
