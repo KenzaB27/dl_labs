@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score
 import numpy as np
 from tqdm import tqdm
+from collections import defaultdict
 
 
 def softmax(x):
@@ -203,7 +204,7 @@ class MLP():
                 X_batch_copy = X_batch.copy()
                 
                 if jitter and np.random.random() > 0.5:
-                    X_batch = self.random_jitter(X_batch, flip=np.random.random())
+                    X_batch = self.random_jitter(X_batch, flip=0)
                 
                 P_batch = self.forward_pass(X_batch)
 
@@ -425,67 +426,47 @@ class MLP():
         mean, std = np.mean(X_jitter, axis=1), np.std(X_jitter, axis = 1)
         X_jitter -= np.outer(mean, np.ones(X_jitter.shape[1]))
         X_jitter /= np.outer(std, np.ones(X.shape[1]))
-        # d, n_batch = X.shape
-        # if flip > 0.5:
-        #     X_jitter = X_jitter.reshape(n_batch, 3, 32, 32).transpose(0, 2, 3, 1)
-        #     X_jitter = np.array([np.fliplr(X_jitter[i]) for i in range(n_batch)])
-        #     X_jitter = X_jitter.reshape((d, n_batch))
+        d, n_batch = X.shape
+        if flip > 0.5:
+            X_jitter = X_jitter.reshape(n_batch, 3, 32, 32).transpose(0, 2, 3, 1)
+            X_jitter = np.array([np.fliplr(X_jitter[i]) for i in range(n_batch)])
+            X_jitter = X_jitter.reshape((d, n_batch))
         return X_jitter
 
 class Search():
-
-    def _init_(self, l_min, l_max, n_lambda, p1, params1, p2, params2):
+    
+    def __init__(self, l_min=-5, l_max=-1, n_lambda=20, sample=True, seed=42):
+        np.random.seed(seed)
         self.l_min = l_min
         self.l_max = l_max
-        self.lambdas = []
         self.n_lambda = n_lambda
-        self.p1 = p1
-        self.params1 = params1
-        self.p2 = p2
-        self.params2 = params2
-        self.models = {}
+        if sample:
+            self.lambdas = self.sample_lambda()
+        else: 
+            self.lambdas = np.linspace(l_min, l_max, num=n_lambda)
 
     def sample_lambda(self):
-        r = self.l_min + (self.l_max - self.l_min) * \
-            np.random.rand(self.n_lambda[0])
-        self.lambdas = [10**i for i in r]
+        exp = self.l_min + (self.l_max - self.l_min) * \
+            np.random.rand(self.n_lambda)
+        lambdas = [10**e for e in exp]
+        return lambdas
 
-    def random_search(self, data, GDparams):
+    def random_search(self, data, GDparams, lamdas=None):
+        if lamdas is not None:
+            self.lambdas = lamdas
+        for lmda in self.lambdas:
+            mlp = MLP(lamda=lmda)
+            mlp.cyclic_learning(
+                data, GDparams, verbose=False, backup=True)
 
-        self.sample_lambda()
-        for t, _ in enumerate(self.n_lambda):
-            for lmda in self.lambdas:
-                if self.params1 and self.params2:
-                    self.grid_search(data, GDparams, lmda)
-                else:
-                    mlp = MLP(lamda=lmda)
-                    mlp.cyclic_learning(
-                        data, GDparams, verbose=False, backup=False)
-                    self.models.update({mlp.val_acc[-1]: mlp})
-            try:
-                n = self.n_lambda[t+1]
-            except:
-                n = 3
-            self.update_lambda(n=n)
-
-        max_key = max(self.models.keys())
-        return self.models[max_key]
-
-    def grid_search(self, data, GDparams, lmda):
-
-        for param1 in self.params1:
-            for param2 in self.params2:
-                GDparams[self.p1] = param1
-                GDparams[self.p2] = param2
-                mlp = MLP(lamda=lmda)
-                mlp.cyclic_learning(
-                    data, GDparams, verbose=False, backup=False)
-                self.models.update({mlp.val_acc[-1]: mlp})
-
-    def update_lambda(self, n, _min=1e-2, _max=1e-2):
-        key = max(self.models.keys())
-        lba = self.models[key].lamda
-        l_min_ = lba-_min
-        l_max_ = lba+_max
-        r = l_min_ + ((l_max_ - l_min_)*np.random.rand(n))
-        self.lambdas = [lmbda for lmbda in r]
+    def random_search_perf(self, GDparams, lamdas=None):
+        if lamdas is not None:
+            self.lambdas = lamdas
+        models = defaultdict(list)
+        for lmda in self.lambdas:
+            model = MLP.load_mlp(GDparams, cyclic=True, lamda=lmda)
+            models[model.val_acc[-1]*100
+                ].append({"lamda": round(lmda,7), "train_acc": round(model.train_acc[-1]*100, 5)})
+        for acc in sorted(models.keys(), reverse=True):
+            for v in models[acc]:
+                print(f'{v["lamda"]} & {v["train_acc"]} & {round(acc,5)} \\\\')
