@@ -1,10 +1,7 @@
 from six.moves import cPickle
 from keras.utils.np_utils import to_categorical
-from sklearn.metrics import accuracy_score
-from sklearn.utils import shuffle
 import matplotlib.pyplot as plt
 import numpy as np
-from tqdm import tqdm
 
 def loadData(filename, reshape=False, clipping=False):
     """ Loads data and creates one hot encoded labels """
