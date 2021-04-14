@@ -84,7 +84,7 @@ class BNLayer(Layer):
         self.shift -= eta * self.grad_shift
 
 class MLP():
-    def __init__(self, k=2, dims=[3072, 50, 10], lamda=0, seed=42, batch_norm=False, alpha=0.9):
+    def __init__(self, k=2, dims=[3072, 50, 10], lamda=0, seed=42, batch_norm=False, alpha=0.9, init=Initialization.HE):
         np.random.seed(seed)
         self.seed = seed
         self.k = k
@@ -93,19 +93,20 @@ class MLP():
         self.layers = []
         self.batch_norm = batch_norm
         self.alpha = alpha
-        self.add_layers()
+        self.init = init
+        self.add_layers(init)
         self.train_loss, self.val_loss = [], []
         self.train_cost, self.val_cost = [], []
         self.train_acc, self.val_acc = [], []
 
-    def add_layers(self):
+    def add_layers(self, init):
         for i in range(self.k):
             d_in, d_out = self.dims[i], self.dims[i+1]
             activation = relu if i < self.k-1 else softmax
             if self.batch_norm and i < self.k-1:
-                layer = BNLayer(d_in, d_out, activation, alpha=self.alpha)
+                layer = BNLayer(d_in, d_out, activation, alpha=self.alpha, init=init)
             else:
-                layer = Layer(d_in, d_out, activation)
+                layer = Layer(d_in, d_out, activation, init)
 
             self.layers.append(layer)
 
