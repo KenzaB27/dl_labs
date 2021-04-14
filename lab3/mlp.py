@@ -7,10 +7,7 @@ from collections import defaultdict
 
 
 def batch_normalize(X, mean, std):
-    Xc = np.copy(X)
-    Xc -= mean
-    Xc /= std
-    return X
+    return (X- mean)/std
 
 
 def softmax(x):
