@@ -4,7 +4,11 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 from tqdm import tqdm
 from collections import defaultdict
+from enum import Enum
 
+class Initialization(Enum):
+    XAVIER = 1
+    HE = 2
 
 def batch_normalize(X, mean, std):
     return (X- mean)/std
@@ -20,11 +24,12 @@ def relu(x):
 
 
 class Layer():
-    def __init__(self, d_in, d_out, W, b, activation):
+    def __init__(self, d_in, d_out, activation, init=Initialization.HE):
         self.d_in = d_in
         self.d_out = d_out
-        self.W = W
-        self.b = b
+        self.W = np.random.normal(
+            0, init.value/np.sqrt(d_in), (d_out, d_in))
+        self.b = np.zeros((d_out, 1))
         self.grad_W = None
         self.grad_b = None
         self.input = None
@@ -36,8 +41,8 @@ class Layer():
 
 
 class BNLayer(Layer):
-    def __init__(self, d_in, d_out, W, b, activation, alpha=0.9):
-        super().__init__(d_in, d_out, W, b, activation)
+    def __init__(self, d_in, d_out, activation, init=Initialization.HE, alpha=0.9):
+        super().__init__(d_in, d_out, activation, init)
         self.scores = None
         self.scores_hat = None
         self.mu = np.zeros((self.d_out, 1))
@@ -87,11 +92,9 @@ class MLP():
             d_in, d_out = self.dims[i], self.dims[i+1]
             activation = relu if i < self.k-1 else softmax
             if self.batch_norm and i < self.k-1:
-                layer = BNLayer(d_in, d_out, np.random.normal(
-                    0, 1/np.sqrt(d_in), (d_out, d_in)), np.zeros((d_out, 1)), activation, alpha=self.alpha)
+                layer = BNLayer(d_in, d_out, activation, alpha=self.alpha)
             else:
-                layer = Layer(d_in, d_out, np.random.normal(
-                    0, 1/np.sqrt(d_in), (d_out, d_in)), np.zeros((d_out, 1)), activation)
+                layer = Layer(d_in, d_out, activation)
 
             self.layers.append(layer)
 
