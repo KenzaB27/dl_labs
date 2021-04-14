@@ -6,12 +6,14 @@ from tqdm import tqdm
 from collections import defaultdict
 from enum import Enum
 
+
 class Initialization(Enum):
     XAVIER = 1
     HE = 2
 
+
 def batch_normalize(X, mean, std):
-    return (X- mean)/std
+    return (X - mean)/std
 
 
 def softmax(x):
@@ -30,47 +32,56 @@ class Layer():
         self.W = np.random.normal(
             0, init.value/np.sqrt(d_in), (d_out, d_in))
         self.b = np.zeros((d_out, 1))
-        self.grad_W = None
-        self.grad_b = None
         self.input = None
         self.activation = activation
+        self.grad_W = None
+        self.grad_b = None
 
     def evaluate_layer(self, input, train_mode=True):
         self.input = input.copy()
         return self.activation(self.W @ self.input + self.b)
 
+    def update_params(self, eta):
+        self.W -= eta * self.grad_W
+        self.b -= eta * self.grad_b
 
 class BNLayer(Layer):
     def __init__(self, d_in, d_out, activation, init=Initialization.HE, alpha=0.9):
         super().__init__(d_in, d_out, activation, init)
-        self.scores = None
-        self.scores_hat = None
+        self.alpha = alpha
         self.mu = np.zeros((self.d_out, 1))
         self.v = np.zeros((self.d_out, 1))
         self.scale = np.ones((self.d_out, 1))
         self.shift = np.zeros((self.d_out, 1))
-        self.alpha = alpha
+        self.grad_scale = None
+        self.grad_shift = None
+        self.scores = None
+        self.scores_hat = None
 
     def evaluate_layer(self, input, train_mode=True):
         self.input = input.copy()
         self.scores = self.W @ self.input + self.b
-        
+
         if train_mode:
             mu = np.mean(self.scores, axis=1, keepdims=True)
             v = np.var(self.scores, axis=1, ddof=1, keepdims=True)
-            
+
             self.scores_hat = batch_normalize(
                 self.scores, mu, np.sqrt(v + np.finfo(float).eps))
 
             self.mu = self.alpha * self.mu + (1-self.alpha) * mu
             self.v = self.alpha * self.v + (1-self.alpha) * v
-        
+
         else:
             self.scores_hat = batch_normalize(
-                self.scores, self.mu, np.sqrt(self.v + np.finfo(float).eps))
-        
-        return self.activation(np.multiply(self.scale, self.scores_hat) + self.shift)
+                self.scores, self.mu, np.sqrt(self.v + np.finfo(np.float64).eps))
 
+        return self.activation(np.multiply(self.scale, self.scores_hat) + self.shift)
+    
+    def update_params(self, eta):
+        super().update_params(eta)
+        self.scale -= eta * self.grad_scale
+        self.shift -= eta * self.grad_shift
 
 class MLP():
     def __init__(self, k=2, dims=[3072, 50, 10], lamda=0, seed=42, batch_norm=False, alpha=0.9):
@@ -124,10 +135,55 @@ class MLP():
             G = layer.W.T @ G
             G = np.multiply(G, np.heaviside(layer.input, 0))
 
+    def compute_gradients_bn(self, X, Y, P):
+        G = -(Y-P)
+        nb = X.shape[1]
+
+        # compute gradients of last layer
+        self.layers[-1].grad_W = G @ self.layers[-1].input.T / nb + \
+            2 * self.lamda * self.layers[-1].W
+        self.layers[-1].grad_b = (
+            np.sum(G, axis=1) / nb).reshape(self.layers[-1].d_out, 1)
+        G = self.layers[-1].W.T @ G
+        G = np.multiply(G, np.heaviside(self.layers[-1].input, 0))
+
+        for layer in reversed(self.layers[:-1]):
+            layer.grad_scale = (
+                np.sum(np.multiply(G, layer.scores_hat), axis=1) / nb).reshape(layer.d_out, 1)
+            layer.grad_shift = (
+                np.sum(G, axis=1) / nb).reshape(layer.d_out, 1)
+
+            G = np.multiply(G, layer.shift)
+            G = self.batch_norm_back_pass(layer, G)
+
+            layer.grad_W = G @ layer.input.T / nb + \
+                2 * self.lamda * layer.W
+            layer.grad_b = (
+                np.sum(G, axis=1) / nb).reshape(layer.d_out, 1)
+            # TODO add check for last layer
+            G = layer.W.T @ G
+            G = np.multiply(G, np.heaviside(layer.input, 0))
+
+    @staticmethod
+    def batch_norm_back_pass(layer, G):
+        N = G.shape[1]
+        sigma1 = np.power(layer.v + np.finfo(np.float64).eps, -0.5)
+        sigma2 = np.power(layer.v + np.finfo(np.float64).eps, -1.5)
+
+        G1 = np.multiply(G, sigma1)
+        G2 = np.multiply(G, sigma2)
+
+        D = layer.scores - layer.mu
+
+        c = np.sum(np.multiply(G2, D), axis=1, keepdims=True)
+
+        G = G1 - 1/N * np.sum(G1, axis=1, keepdims=True) - \
+            1/N * np.multiply(D, c)
+        return G
+
     def update_parameters(self, eta=1e-2):
         for layer in self.layers:
-            layer.W -= eta * layer.grad_W
-            layer.b -= eta * layer.grad_b
+            layer.update_params(eta)
 
     def compute_gradients_num(self, X_batch, Y_batch, h=1e-5):
         """ Numerically computes the gradients of the weight and bias parameters
