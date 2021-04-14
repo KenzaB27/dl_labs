@@ -4,48 +4,64 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 from tqdm import tqdm
 from collections import defaultdict
+# from enum import Enum
+
+# class ActivationFunction(Enum):
+#     SOFTMAX = 0
+#     RELU = 1
 
 
 def softmax(x):
     """ Standard definition of the softmax function """
     return np.exp(x) / np.sum(np.exp(x), axis=0)
 
+def relu(x):
+    return np.maximum(0, x)
 
 class Layer():
-    def __init__(self, d_in, d_out, W, b, grad_W, grad_b, x):
+    def __init__(self, d_in, d_out, W, b, activation):
         self.d_in = d_in
         self.d_out = d_out
         self.W = W
         self.b = b
-        self.grad_W = grad_W
-        self.grad_b = grad_b
-        self.input = input
+        self.grad_W = None
+        self.grad_b = None
+        self.input = None
+        self.activation = activation
+
+    def evaluate_layer(self, input):
+        self.input = input.copy()
+        return self.activation(self.W @ self.input + self.b)
 
 
 class MLP():
-    def __init__(self, k=2, dims=[3072, 50, 10], lamda=0, seed=42) -> None:
+    def __init__(self, k=2, dims=[3072, 50, 10], lamda=0, seed=42):
         np.random.seed(seed)
         self.seed = seed
         self.k = k
         self.lamda = lamda
         self.dims = dims
         self.layers = []
-        for i in range(k):
-            d_in, d_out = self.dims[i], self.dims[i+1]
-            self.layers.append(Layer(d_in, d_out, np.random.normal(
-                0, 1/np.sqrt(d_in), (d_out, d_in)), np.zeros((d_out, 1)), None, None, None))
-
+        self.add_layers()
         self.train_loss, self.val_loss = [], []
         self.train_cost, self.val_cost = [], []
         self.train_acc, self.val_acc = [], []
 
+    def add_layers(self):
+        for i in range(self.k):
+            d_in, d_out = self.dims[i], self.dims[i+1]
+            if i < self.k-1:
+                activation = relu
+            else:
+                activation = softmax
+            self.layers.append(Layer(d_in, d_out, np.random.normal(
+                0, 1/np.sqrt(d_in), (d_out, d_in)), np.zeros((d_out, 1)), activation))
+
     def forward_pass(self, X):
         input = X.copy()
         for layer in self.layers:
-            layer.input = input.copy()
-            input = np.maximum(
-                0, layer.W @ layer.input + layer.b)
-        return softmax(layer.W @ layer.input + layer.b)
+            input = layer.evaluate_layer(input)
+        return input
 
     def compute_cost(self, X, Y):
         """ Computes the cost function: cross entropy loss + L2 regularization """
@@ -339,7 +355,7 @@ class MLP():
 
         return mlp
 
-    
+
 class Search():
 
     def __init__(self, l_min=-5, l_max=-1, n_lambda=20, sample=True, seed=42):
@@ -349,7 +365,7 @@ class Search():
         self.n_lambda = n_lambda
         if sample:
             self.lambdas = self.sample_lambda()
-        else: 
+        else:
             self.lambdas = np.linspace(l_min, l_max, num=n_lambda)
 
     def sample_lambda(self):
@@ -373,12 +389,7 @@ class Search():
         for lmda in self.lambdas:
             model = MLP.load_mlp(GDparams, cyclic=True, lamda=lmda)
             models[model.val_acc[-1]*100
-                ].append({"lamda": round(lmda,7), "train_acc": round(model.train_acc[-1]*100, 5)})
+                   ].append({"lamda": round(lmda, 7), "train_acc": round(model.train_acc[-1]*100, 5)})
         for acc in sorted(models.keys(), reverse=True):
             for v in models[acc]:
                 print(f'{v["lamda"]} & {v["train_acc"]} & {round(acc,5)} \\\\')
-        
-
-
-
- 
