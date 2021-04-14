@@ -247,9 +247,9 @@ class MLP():
 
         return rerr_w, rerr_b, aerr_w, aerr_b
 
-    def compute_accuracy(self, X, y):
+    def compute_accuracy(self, X, y, train_mode=False):
         """ Computes the prediction accuracy of a given state of the network """
-        P = self.forward_pass(X)
+        P = self.forward_pass(X, train_mode=train_mode)
         y_pred = np.argmax(P, axis=0)
         return accuracy_score(y, y_pred)
 
@@ -301,17 +301,22 @@ class MLP():
         epochs = batch_size * 2 * ns * n_cycles // n
 
         for epoch in tqdm(range(epochs)):
+            
             X, Y, y = shuffle(X.T, Y.T, y.T, random_state=epoch)
             X, Y, y = X.T, Y.T, y.T
+            
             for j in range(n//batch_size):
                 j_start = j * batch_size
                 j_end = (j+1) * batch_size
                 X_batch = X[:, j_start:j_end]
                 Y_batch = Y[:, j_start:j_end]
 
-                P_batch = self.forward_pass(X_batch)
+                P_batch = self.forward_pass(X_batch, train_mode=True)
 
-                self.compute_gradients(X_batch, Y_batch, P_batch)
+                if self.batch_norm:
+                    self.compute_gradients_bn(X_batch, Y_batch, P_batch)
+                else:
+                    self.compute_gradients(X_batch, Y_batch, P_batch)
                 self.update_parameters(eta)
 
                 if t % (2*ns//freq) == 0:
@@ -332,11 +337,11 @@ class MLP():
         X, Y, y, X_val, Y_val, y_val = data["X_train"], data["Y_train"], data[
             "y_train"], data["X_val"], data["Y_val"], data["y_val"]
 
-        t_loss, t_cost = self.compute_cost(X, Y)
-        v_loss, v_cost = self.compute_cost(X_val, Y_val)
+        t_loss, t_cost = self.compute_cost(X, Y, train_mode=False)
+        v_loss, v_cost = self.compute_cost(X_val, Y_val, train_mode=False)
 
-        t_acc = self.compute_accuracy(X, y)
-        v_acc = self.compute_accuracy(X_val, y_val)
+        t_acc = self.compute_accuracy(X, y, train_mode=False)
+        v_acc = self.compute_accuracy(X_val, y_val, train_mode=False)
 
         if verbose:
             pref = "Update Step " if cyclic else "Epoch "
