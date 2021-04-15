@@ -170,7 +170,7 @@ class MLP():
         n_batch = X.shape[1]
         for i, layer in enumerate(reversed(self.layers)):
             G = layer.compute_gradients(
-                G, n_batch, self.lamda, last=(i == self.k-1))
+                G, n_batch, self.lamda, last=(i==self.k-1))
 
     def compute_gradients_bn(self, X, Y, P):
         G = -(Y-P)
@@ -200,6 +200,23 @@ class MLP():
             # TODO add check for last layer
             G = layer.W.T @ G
             G = np.multiply(G, np.heaviside(layer.input, 0))
+
+    @staticmethod
+    def batch_norm_back_pass(layer, G):
+        N = G.shape[1]
+        sigma1 = np.power(layer.v + np.finfo(np.float64).eps, -0.5)
+        sigma2 = np.power(layer.v + np.finfo(np.float64).eps, -1.5)
+
+        G1 = np.multiply(G, sigma1)
+        G2 = np.multiply(G, sigma2)
+
+        D = layer.scores - layer.mu
+
+        c = np.sum(np.multiply(G2, D), axis=1, keepdims=True)
+
+        G = G1 - 1/N * np.sum(G1, axis=1, keepdims=True) - \
+            1/N * np.multiply(D, c)
+        return G
 
     def update_parameters(self, eta=1e-2):
         for layer in self.layers:
@@ -243,6 +260,34 @@ class MLP():
                 _, c2 = self.compute_cost(X_batch, Y_batch)
                 grads['W' + str(j)][i] = (c1-c2) / (2*h)
             layer.W = W_try
+
+            if self.batch_norm:
+                selfScale = layer.scale
+                selfShift = layer.shift
+                grads['scale' + str(j)] = np.zeros(selfShift.shape)
+                grads['shift' + str(j)] = np.zeros(selfScale.shape)
+
+                scale_try = np.copy(selfScale)
+                for i in range(selfScale.shape[0]):
+                    layer.scale = np.copy(scale_try)
+                    layer.scale[i] += h
+                    _, c1 = self.compute_cost(X_batch, Y_batch)
+                    layer.scale = np.copy(scale_try)
+                    layer.scale[i] -= h
+                    _, c2 = self.compute_cost(X_batch, Y_batch)
+                    grads['scale' + str(j)][i] = (c1-c2) / (2*h)
+                layer.scale = scale_try
+
+                shift_try = np.copy(selfShift)
+                for i in range(selfShift.shape[0]):
+                    layer.shift = np.copy(shift_try)
+                    layer.shift[i] += h
+                    _, c1 = self.compute_cost(X_batch, Y_batch)
+                    layer.shift = np.copy(scale_try)
+                    layer.shift[i] -= h
+                    _, c2 = self.compute_cost(X_batch, Y_batch)
+                    grads['shift' + str(j)][i] = (c1-c2) / (2*h)
+                layer.shift = shift_try
 
         return grads
 
