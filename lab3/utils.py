@@ -45,7 +45,7 @@ def batch_normalize(X, mean, std):
     Xc = np.copy(X)
     Xc -= np.outer(mean, np.ones(X.shape[1]))
     Xc /= np.outer(std, np.ones(X.shape[1]))
-    return X
+    return Xc
 
 
 def preprocess_data(X_train, y_train, Y_train, X_val, y_val, Y_val, X_test, y_test, Y_test):

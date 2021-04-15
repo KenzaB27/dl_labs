@@ -26,14 +26,15 @@ def relu(x):
 
 
 class Layer():
-    def __init__(self, d_in, d_out, activation, init=Initialization.HE):
+    def __init__(self, d_in, d_out, activation, init=Initialization.XAVIER):
         self.d_in = d_in
         self.d_out = d_out
         self.W = np.random.normal(
             0, init.value/np.sqrt(d_in), (d_out, d_in))
         self.b = np.zeros((d_out, 1))
-        self.input = None
         self.activation = activation
+        self.init = init
+        self.input = None
         self.grad_W = None
         self.grad_b = None
 
@@ -41,9 +42,20 @@ class Layer():
         self.input = input.copy()
         return self.activation(self.W @ self.input + self.b)
 
+    def compute_gradients(self, G, n_batch, lamda, last=False):
+        self.grad_W = G @ self.input.T / n_batch + \
+            2 * lamda * self.W
+        self.grad_b = (
+            np.sum(G, axis=1) / n_batch).reshape(self.d_out, 1)
+        if not last:
+            G = self.W.T @ G
+            G = np.multiply(G, np.heaviside(self.input, 0))
+        return G
+
     def update_params(self, eta):
         self.W -= eta * self.grad_W
         self.b -= eta * self.grad_b
+
 
 class BNLayer(Layer):
     def __init__(self, d_in, d_out, activation, init=Initialization.HE, alpha=0.9):
@@ -77,11 +89,41 @@ class BNLayer(Layer):
                 self.scores, self.mu, np.sqrt(self.v + np.finfo(np.float64).eps))
 
         return self.activation(np.multiply(self.scale, self.scores_hat) + self.shift)
-    
+
+    def compute_gradients(self, G, n_batch, lamda, last=False):
+
+        self.grad_scale = (
+            np.sum(np.multiply(G, self.scores_hat), axis=1) / n_batch).reshape(self.d_out, 1)
+        self.grad_shift = (
+            np.sum(G, axis=1) / n_batch).reshape(self.d_out, 1)
+
+        G = np.multiply(G,  self.shift)
+        G = self.batch_norm_back_pass(G)
+
+        G = super().compute_gradients(G, n_batch, lamda, last=last)
+        return G
+
+    def batch_norm_back_pass(self, G):
+        N = G.shape[1]
+        sigma1 = np.power(self.v + np.finfo(np.float64).eps, -0.5)
+        sigma2 = np.power(self.v + np.finfo(np.float64).eps, -1.5)
+
+        G1 = np.multiply(G, sigma1)
+        G2 = np.multiply(G, sigma2)
+
+        D = self.scores - self.mu
+
+        c = np.sum(np.multiply(G2, D), axis=1, keepdims=True)
+
+        G = G1 - 1/N * np.sum(G1, axis=1, keepdims=True) - \
+            1/N * np.multiply(D, c)
+        return G
+
     def update_params(self, eta):
         super().update_params(eta)
         self.scale -= eta * self.grad_scale
         self.shift -= eta * self.grad_shift
+
 
 class MLP():
     def __init__(self, k=2, dims=[3072, 50, 10], lamda=0, seed=42, batch_norm=False, alpha=0.9, init=Initialization.HE):
@@ -92,22 +134,20 @@ class MLP():
         self.dims = dims
         self.layers = []
         self.batch_norm = batch_norm
-        self.alpha = alpha
-        self.init = init
-        self.add_layers(init)
+        self.add_layers(init, alpha)
         self.train_loss, self.val_loss = [], []
         self.train_cost, self.val_cost = [], []
         self.train_acc, self.val_acc = [], []
 
-    def add_layers(self, init):
+    def add_layers(self, init, alpha):
         for i in range(self.k):
             d_in, d_out = self.dims[i], self.dims[i+1]
             activation = relu if i < self.k-1 else softmax
             if self.batch_norm and i < self.k-1:
-                layer = BNLayer(d_in, d_out, activation, alpha=self.alpha, init=init)
+                layer = BNLayer(d_in, d_out, activation,
+                                alpha=alpha, init=init)
             else:
                 layer = Layer(d_in, d_out, activation, init)
-
             self.layers.append(layer)
 
     def forward_pass(self, X, train_mode=True):
@@ -119,22 +159,18 @@ class MLP():
     def compute_cost(self, X, Y, train_mode=True):
         """ Computes the cost function: cross entropy loss + L2 regularization """
         P = self.forward_pass(X, train_mode)
-        loss = - np.sum(np.log(np.sum(np.multiply(Y, P), axis=0)))/X.shape[1]
+        loss = np.log(np.sum(np.multiply(Y, P), axis=0))
+        loss = - np.sum(loss)/X.shape[1]
         r = np.sum([np.linalg.norm(layer.W) ** 2 for layer in self.layers])
         cost = loss + self.lamda * r
         return loss, cost
 
     def compute_gradients(self, X, Y, P):
         G = - (Y - P)
-        nb = X.shape[1]
-
-        for layer in reversed(self.layers):
-            layer.grad_W = G @ layer.input.T / nb + \
-                2 * self.lamda * layer.W
-            layer.grad_b = (
-                np.sum(G, axis=1) / nb).reshape(layer.d_out, 1)
-            G = layer.W.T @ G
-            G = np.multiply(G, np.heaviside(layer.input, 0))
+        n_batch = X.shape[1]
+        for i, layer in enumerate(reversed(self.layers)):
+            G = layer.compute_gradients(
+                G, n_batch, self.lamda, last=(i == self.k-1))
 
     def compute_gradients_bn(self, X, Y, P):
         G = -(Y-P)
@@ -164,23 +200,6 @@ class MLP():
             # TODO add check for last layer
             G = layer.W.T @ G
             G = np.multiply(G, np.heaviside(layer.input, 0))
-
-    @staticmethod
-    def batch_norm_back_pass(layer, G):
-        N = G.shape[1]
-        sigma1 = np.power(layer.v + np.finfo(np.float64).eps, -0.5)
-        sigma2 = np.power(layer.v + np.finfo(np.float64).eps, -1.5)
-
-        G1 = np.multiply(G, sigma1)
-        G2 = np.multiply(G, sigma2)
-
-        D = layer.scores - layer.mu
-
-        c = np.sum(np.multiply(G2, D), axis=1, keepdims=True)
-
-        G = G1 - 1/N * np.sum(G1, axis=1, keepdims=True) - \
-            1/N * np.multiply(D, c)
-        return G
 
     def update_parameters(self, eta=1e-2):
         for layer in self.layers:
@@ -258,11 +277,9 @@ class MLP():
         """ Performas minibatch gradient descent """
 
         X, Y, y = data["X_train"], data["Y_train"], data["y_train"]
-
         _, n = X.shape
 
         epochs, batch_size, eta = GDparams["n_epochs"], GDparams["n_batch"], GDparams["eta"]
-
         self.history(data, 0, verbose, cyclic=False)
 
         for epoch in tqdm(range(epochs)):
@@ -302,10 +319,10 @@ class MLP():
         epochs = batch_size * 2 * ns * n_cycles // n
 
         for epoch in tqdm(range(epochs)):
-            
+
             X, Y, y = shuffle(X.T, Y.T, y.T, random_state=epoch)
             X, Y, y = X.T, Y.T, y.T
-            
+
             for j in range(n//batch_size):
                 j_start = j * batch_size
                 j_end = (j+1) * batch_size
