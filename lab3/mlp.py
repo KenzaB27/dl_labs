@@ -29,8 +29,9 @@ class Layer():
     def __init__(self, d_in, d_out, activation, init=Initialization.XAVIER):
         self.d_in = d_in
         self.d_out = d_out
+        init = init.value if isinstance(init, Initialization) else init 
         self.W = np.random.normal(
-            0, init.value/np.sqrt(d_in), (d_out, d_in))
+            0, init/np.sqrt(d_in), (d_out, d_in))
         self.b = np.zeros((d_out, 1))
         self.activation = activation
         self.init = init
@@ -455,7 +456,7 @@ class MLP():
         plt.show()
 
     @staticmethod
-    def load_mlp(GDparams, cyclic=True, k=2, dims=[3072, 50, 10], lamda=0, seed=42, batch_norm=batch_norm, init=init):
+    def load_mlp(GDparams, cyclic=True, k=2, dims=[3072, 50, 10], lamda=0, seed=42, batch_norm=True, init=Initialization.HE):
         mlp = MLP(k, dims, lamda, seed, batch_norm=batch_norm, init=init)
         if cyclic:
 
