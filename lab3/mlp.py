@@ -38,16 +38,15 @@ class Layer():
         self.grad_W = None
         self.grad_b = None
 
-    def evaluate_layer(self, input, train_mode=True):
+    def evaluate_layer(self, input, train_mode=True, init=False):
         self.input = input.copy()
         return self.activation(self.W @ self.input + self.b)
 
-    def compute_gradients(self, G, n_batch, lamda, last=False):
+    def compute_gradients(self, G, n_batch, lamda, propagate=False):
         self.grad_W = G @ self.input.T / n_batch + \
             2 * lamda * self.W
-        self.grad_b = (
-            np.sum(G, axis=1) / n_batch).reshape(self.d_out, 1)
-        if not last:
+        self.grad_b = np.sum(G, axis=1, keepdims=True) / n_batch
+        if propagate:
             G = self.W.T @ G
             G = np.multiply(G, np.heaviside(self.input, 0))
         return G
@@ -63,44 +62,49 @@ class BNLayer(Layer):
         self.alpha = alpha
         self.mu = np.zeros((self.d_out, 1))
         self.v = np.zeros((self.d_out, 1))
-        self.scale = np.ones((self.d_out, 1))
-        self.shift = np.zeros((self.d_out, 1))
-        self.grad_scale = None
-        self.grad_shift = None
+        self.mu_av = np.zeros((self.d_out, 1))
+        self.v_av = np.zeros((self.d_out, 1))
+        self.gamma = np.ones((self.d_out, 1))
+        self.beta = np.zeros((self.d_out, 1))
+        self.grad_gamma = None
+        self.grad_beta = None
         self.scores = None
         self.scores_hat = None
 
-    def evaluate_layer(self, input, train_mode=True):
+    def evaluate_layer(self, input, train_mode=True, init=False):
         self.input = input.copy()
         self.scores = self.W @ self.input + self.b
 
         if train_mode:
-            mu = np.mean(self.scores, axis=1, keepdims=True)
-            v = np.var(self.scores, axis=1, ddof=1, keepdims=True)
+            self.mu = np.mean(self.scores, axis=1, keepdims=True)
+            self.v = np.var(self.scores, axis=1, ddof=1, keepdims=True)
+            
+            if init: 
+                self.mu_av = self.mu_av
+                self.v_av = self.v
+            else:
+                self.mu_av = self.alpha * self.mu_av + (1-self.alpha) * self.mu
+                self.v_av = self.alpha * self.v_av + (1-self.alpha) * self.v
 
             self.scores_hat = batch_normalize(
-                self.scores, mu, np.sqrt(v + np.finfo(float).eps))
-
-            self.mu = self.alpha * self.mu + (1-self.alpha) * mu
-            self.v = self.alpha * self.v + (1-self.alpha) * v
-
+                self.scores, self.mu, np.sqrt(self.v + np.finfo(float).eps))
+                
+        ## test mode
         else:
             self.scores_hat = batch_normalize(
-                self.scores, self.mu, np.sqrt(self.v + np.finfo(np.float64).eps))
+                self.scores, self.mu_av, np.sqrt(self.v_av + np.finfo(np.float64).eps))
 
-        return self.activation(np.multiply(self.scale, self.scores_hat) + self.shift)
+        return self.activation(np.multiply(self.gamma, self.scores_hat) + self.beta)
 
-    def compute_gradients(self, G, n_batch, lamda, last=False):
-
-        self.grad_scale = (
-            np.sum(np.multiply(G, self.scores_hat), axis=1) / n_batch).reshape(self.d_out, 1)
-        self.grad_shift = (
-            np.sum(G, axis=1) / n_batch).reshape(self.d_out, 1)
-
-        G = np.multiply(G,  self.shift)
+    def compute_gradients(self, G, n_batch, lamda, propagate=False):
+        self.grad_gamma = np.sum(np.multiply(
+            G, self.scores_hat), axis=1, keepdims=True) / n_batch
+        self.grad_beta = np.sum(G, axis=1, keepdims=True) / n_batch
+        
+        G = np.multiply(G, self.gamma)
         G = self.batch_norm_back_pass(G)
 
-        G = super().compute_gradients(G, n_batch, lamda, last=last)
+        G = super().compute_gradients(G, n_batch, lamda, propagate=propagate)
         return G
 
     def batch_norm_back_pass(self, G):
@@ -121,8 +125,8 @@ class BNLayer(Layer):
 
     def update_params(self, eta):
         super().update_params(eta)
-        self.scale -= eta * self.grad_scale
-        self.shift -= eta * self.grad_shift
+        self.gamma -= eta * self.grad_gamma
+        self.beta -= eta * self.grad_beta
 
 
 class MLP():
@@ -150,15 +154,15 @@ class MLP():
                 layer = Layer(d_in, d_out, activation, init)
             self.layers.append(layer)
 
-    def forward_pass(self, X, train_mode=True):
+    def forward_pass(self, X, train_mode=True, init=False):
         input = X.copy()
         for layer in self.layers:
-            input = layer.evaluate_layer(input, train_mode)
+            input = layer.evaluate_layer(input, train_mode, init)
         return input
 
-    def compute_cost(self, X, Y, train_mode=True):
+    def compute_cost(self, X, Y, train_mode=True, init=False):
         """ Computes the cost function: cross entropy loss + L2 regularization """
-        P = self.forward_pass(X, train_mode)
+        P = self.forward_pass(X, train_mode, init)
         loss = np.log(np.sum(np.multiply(Y, P), axis=0))
         loss = - np.sum(loss)/X.shape[1]
         r = np.sum([np.linalg.norm(layer.W) ** 2 for layer in self.layers])
@@ -170,53 +174,7 @@ class MLP():
         n_batch = X.shape[1]
         for i, layer in enumerate(reversed(self.layers)):
             G = layer.compute_gradients(
-                G, n_batch, self.lamda, last=(i==self.k-1))
-
-    def compute_gradients_bn(self, X, Y, P):
-        G = -(Y-P)
-        nb = X.shape[1]
-
-        # compute gradients of last layer
-        self.layers[-1].grad_W = G @ self.layers[-1].input.T / nb + \
-            2 * self.lamda * self.layers[-1].W
-        self.layers[-1].grad_b = (
-            np.sum(G, axis=1) / nb).reshape(self.layers[-1].d_out, 1)
-        G = self.layers[-1].W.T @ G
-        G = np.multiply(G, np.heaviside(self.layers[-1].input, 0))
-
-        for layer in reversed(self.layers[:-1]):
-            layer.grad_scale = (
-                np.sum(np.multiply(G, layer.scores_hat), axis=1) / nb).reshape(layer.d_out, 1)
-            layer.grad_shift = (
-                np.sum(G, axis=1) / nb).reshape(layer.d_out, 1)
-
-            G = np.multiply(G, layer.shift)
-            G = self.batch_norm_back_pass(layer, G)
-
-            layer.grad_W = G @ layer.input.T / nb + \
-                2 * self.lamda * layer.W
-            layer.grad_b = (
-                np.sum(G, axis=1) / nb).reshape(layer.d_out, 1)
-            # TODO add check for last layer
-            G = layer.W.T @ G
-            G = np.multiply(G, np.heaviside(layer.input, 0))
-
-    @staticmethod
-    def batch_norm_back_pass(layer, G):
-        N = G.shape[1]
-        sigma1 = np.power(layer.v + np.finfo(np.float64).eps, -0.5)
-        sigma2 = np.power(layer.v + np.finfo(np.float64).eps, -1.5)
-
-        G1 = np.multiply(G, sigma1)
-        G2 = np.multiply(G, sigma2)
-
-        D = layer.scores - layer.mu
-
-        c = np.sum(np.multiply(G2, D), axis=1, keepdims=True)
-
-        G = G1 - 1/N * np.sum(G1, axis=1, keepdims=True) - \
-            1/N * np.multiply(D, c)
-        return G
+                G, n_batch, self.lamda, propagate=(i!=self.k-1))
 
     def update_parameters(self, eta=1e-2):
         for layer in self.layers:
@@ -261,41 +219,41 @@ class MLP():
                 grads['W' + str(j)][i] = (c1-c2) / (2*h)
             layer.W = W_try
 
-            if self.batch_norm:
-                selfScale = layer.scale
-                selfShift = layer.shift
-                grads['scale' + str(j)] = np.zeros(selfShift.shape)
-                grads['shift' + str(j)] = np.zeros(selfScale.shape)
+            if isinstance(layer, BNLayer):
+                selfGamma = layer.gamma
+                selfBeta = layer.beta
+                grads['gamma' + str(j)] = np.zeros(selfBeta.shape)
+                grads['beta' + str(j)] = np.zeros(selfGamma.shape)
 
-                scale_try = np.copy(selfScale)
-                for i in range(selfScale.shape[0]):
-                    layer.scale = np.copy(scale_try)
-                    layer.scale[i] += h
+                gamma_try = np.copy(selfGamma)
+                for i in range(selfGamma.shape[0]):
+                    layer.gamma = np.copy(gamma_try)
+                    layer.gamma[i] += h
                     _, c1 = self.compute_cost(X_batch, Y_batch)
-                    layer.scale = np.copy(scale_try)
-                    layer.scale[i] -= h
+                    layer.gamma = np.copy(gamma_try)
+                    layer.gamma[i] -= h
                     _, c2 = self.compute_cost(X_batch, Y_batch)
-                    grads['scale' + str(j)][i] = (c1-c2) / (2*h)
-                layer.scale = scale_try
+                    grads['gamma' + str(j)][i] = (c1-c2) / (2*h)
+                layer.gamma = gamma_try
 
-                shift_try = np.copy(selfShift)
-                for i in range(selfShift.shape[0]):
-                    layer.shift = np.copy(shift_try)
-                    layer.shift[i] += h
+                beta_try = np.copy(selfBeta)
+                for i in range(selfBeta.shape[0]):
+                    layer.beta = np.copy(beta_try)
+                    layer.beta[i] += h
                     _, c1 = self.compute_cost(X_batch, Y_batch)
-                    layer.shift = np.copy(scale_try)
-                    layer.shift[i] -= h
+                    layer.beta = np.copy(gamma_try)
+                    layer.beta[i] -= h
                     _, c2 = self.compute_cost(X_batch, Y_batch)
-                    grads['shift' + str(j)][i] = (c1-c2) / (2*h)
-                layer.shift = shift_try
+                    grads['beta' + str(j)][i] = (c1-c2) / (2*h)
+                layer.beta = beta_try
 
         return grads
 
     def compare_gradients(self, X, Y, eps=1e-10, h=1e-5):
         """ Compares analytical and numerical gradients given a certain epsilon """
         gn = self.compute_gradients_num(X, Y, h)
-        rerr_w, rerr_b = [], []
-        aerr_w, aerr_b = [], []
+        rerr_w, rerr_b, rerr_gamma, rerr_beta = [], [], [], []
+        aerr_w, aerr_b, aerr_gamma, aerr_beta = [], [], [], []
 
         def _rel_error(x, y, eps): return np.abs(
             x-y)/max(eps, np.abs(x)+np.abs(y))
@@ -309,8 +267,16 @@ class MLP():
             rerr_b.append(rel_error(layer.grad_b, gn[f'b{i}'], eps))
             aerr_w.append(np.mean(abs(layer.grad_W - gn[f'W{i}'])))
             aerr_b.append(np.mean(abs(layer.grad_b - gn[f'b{i}'])))
+            if isinstance(layer, BNLayer):
+                rerr_gamma.append(rel_error(layer.grad_gamma, gn[f'gamma{i}'], eps))
+                rerr_beta.append(rel_error(layer.grad_beta, gn[f'beta{i}'], eps))
+                aerr_gamma.append(np.mean(abs(layer.grad_gamma - gn[f'gamma{i}'])))
+                aerr_beta.append(np.mean(abs(layer.grad_beta - gn[f'beta{i}'])))
 
-        return rerr_w, rerr_b, aerr_w, aerr_b
+        if self.batch_norm:
+            return rerr_w, aerr_w, rerr_b, aerr_b, rerr_gamma, aerr_gamma, rerr_beta, aerr_beta
+        else:
+            return rerr_w, aerr_w, rerr_b, aerr_b
 
     def compute_accuracy(self, X, y, train_mode=False):
         """ Computes the prediction accuracy of a given state of the network """
