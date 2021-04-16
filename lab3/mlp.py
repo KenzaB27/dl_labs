@@ -308,7 +308,7 @@ class MLP():
                 X_batch = X[:, j_start:j_end]
                 Y_batch = Y[:, j_start:j_end]
 
-                P_batch = self.forward_pass(X_batch)
+                P_batch = self.forward_pass(X_batch, train_mode=True, init=(epoch==0 & j==0))
 
                 self.compute_gradients(X_batch, Y_batch, P_batch)
 
@@ -344,12 +344,10 @@ class MLP():
                 X_batch = X[:, j_start:j_end]
                 Y_batch = Y[:, j_start:j_end]
 
-                P_batch = self.forward_pass(X_batch, train_mode=True)
+                P_batch = self.forward_pass(
+                    X_batch, train_mode=True, init=(epoch == 0 & j == 0))
 
-                if self.batch_norm:
-                    self.compute_gradients_bn(X_batch, Y_batch, P_batch)
-                else:
-                    self.compute_gradients(X_batch, Y_batch, P_batch)
+                self.compute_gradients(X_batch, Y_batch, P_batch)
                 self.update_parameters(eta)
 
                 if t % (2*ns//freq) == 0:
@@ -457,8 +455,8 @@ class MLP():
         plt.show()
 
     @staticmethod
-    def load_mlp(GDparams, cyclic=True, k=2, dims=[3072, 50, 10], lamda=0, seed=42):
-        mlp = MLP(k, dims, lamda, seed)
+    def load_mlp(GDparams, cyclic=True, k=2, dims=[3072, 50, 10], lamda=0, seed=42, batch_norm=batch_norm, init=init):
+        mlp = MLP(k, dims, lamda, seed, batch_norm=batch_norm, init=init)
         if cyclic:
 
             n_cycles, batch_size, eta_min, eta_max, ns, exp = GDparams["n_cycles"], GDparams[
@@ -488,3 +486,43 @@ class MLP():
         mlp.val_cost = hist.item()["val_cost"]
 
         return mlp
+
+
+class Search():
+    
+    def __init__(self, l_min=-5, l_max=-1, n_lambda=20, sample=True, seed=42):
+        np.random.seed(seed)
+        self.l_min = l_min
+        self.l_max = l_max
+        self.n_lambda = n_lambda
+        if sample:
+            self.lambdas = self.sample_lambda()
+        else: 
+            self.lambdas = np.linspace(l_min, l_max, num=n_lambda)
+
+    def sample_lambda(self):
+        exp = self.l_min + (self.l_max - self.l_min) * \
+            np.random.rand(self.n_lambda)
+        lambdas = [10**e for e in exp]
+        return lambdas
+
+    def random_search(self, data, GDparams, lamdas=None, k=3, dims=[3072,50,50,10], batch_norm=True, init=Initialization.HE):
+        if lamdas is not None:
+            self.lambdas = lamdas
+        for lmda in self.lambdas:
+            mlp = MLP(lamda=lmda, k=k, dims=dims, batch_norm=batch_norm, init=init)
+            mlp.cyclic_learning(
+                data, GDparams, verbose=False, backup=True)
+
+    def random_search_perf(self, GDparams, lamdas=None, k=3, dims=[3072,50,50,10], batch_norm=True, init=Initialization.HE):
+        if lamdas is not None:
+            self.lambdas = lamdas
+        models = defaultdict(list)
+        for lmda in self.lambdas:
+            model = MLP.load_mlp(GDparams, cyclic=True, lamda=lmda,
+                                 k=k, dims=dims, batch_norm=batch_norm, init=init)
+            models[model.val_acc[-1]*100
+                ].append({"lamda": round(lmda,7), "train_acc": round(model.train_acc[-1]*100, 5)})
+        for acc in sorted(models.keys(), reverse=True):
+            for v in models[acc]:
+                print(f'{v["lamda"]} & {v["train_acc"]} & {round(acc,5)} \\\\')
