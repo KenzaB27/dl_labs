@@ -78,8 +78,8 @@ class BNLayer(Layer):
         if train_mode:
             self.mu = np.mean(self.scores, axis=1, keepdims=True)
             self.v = np.var(self.scores, axis=1, ddof=1, keepdims=True)
-            
-            if init: 
+
+            if init:
                 self.mu_av = self.mu_av
                 self.v_av = self.v
             else:
@@ -88,8 +88,8 @@ class BNLayer(Layer):
 
             self.scores_hat = batch_normalize(
                 self.scores, self.mu, np.sqrt(self.v + np.finfo(float).eps))
-                
-        ## test mode
+
+        # test mode
         else:
             self.scores_hat = batch_normalize(
                 self.scores, self.mu_av, np.sqrt(self.v_av + np.finfo(np.float64).eps))
@@ -100,15 +100,15 @@ class BNLayer(Layer):
         self.grad_gamma = np.sum(np.multiply(
             G, self.scores_hat), axis=1, keepdims=True) / n_batch
         self.grad_beta = np.sum(G, axis=1, keepdims=True) / n_batch
-        
+
         G = np.multiply(G, self.gamma)
-        G = self.batch_norm_back_pass(G)
+        G = self.batch_norm_back_pass(G, n_batch)
 
         G = super().compute_gradients(G, n_batch, lamda, propagate=propagate)
         return G
 
-    def batch_norm_back_pass(self, G):
-        N = G.shape[1]
+    def batch_norm_back_pass(self, G, n_batch):
+
         sigma1 = np.power(self.v + np.finfo(np.float64).eps, -0.5)
         sigma2 = np.power(self.v + np.finfo(np.float64).eps, -1.5)
 
@@ -119,8 +119,8 @@ class BNLayer(Layer):
 
         c = np.sum(np.multiply(G2, D), axis=1, keepdims=True)
 
-        G = G1 - 1/N * np.sum(G1, axis=1, keepdims=True) - \
-            1/N * np.multiply(D, c)
+        G = G1 - np.sum(G1, axis=1, keepdims=True) / \
+            n_batch - np.multiply(D, c) / n_batch
         return G
 
     def update_params(self, eta):
@@ -174,7 +174,7 @@ class MLP():
         n_batch = X.shape[1]
         for i, layer in enumerate(reversed(self.layers)):
             G = layer.compute_gradients(
-                G, n_batch, self.lamda, propagate=(i!=self.k-1))
+                G, n_batch, self.lamda, propagate=(i != self.k-1))
 
     def update_parameters(self, eta=1e-2):
         for layer in self.layers:
@@ -249,7 +249,7 @@ class MLP():
 
         return grads
 
-    def compare_gradients(self, X, Y, eps=1e-10, h=1e-5):
+    def compare_gradients(self, X, Y, eps=1e-10, h=1e-5, fun=np.mean):
         """ Compares analytical and numerical gradients given a certain epsilon """
         gn = self.compute_gradients_num(X, Y, h)
         rerr_w, rerr_b, rerr_gamma, rerr_beta = [], [], [], []
@@ -260,18 +260,22 @@ class MLP():
 
         def rel_error(g1, g2, eps):
             vfunc = np.vectorize(_rel_error)
-            return np.mean(vfunc(g1, g2, eps))
+            return fun(vfunc(g1, g2, eps))
 
         for i, layer in enumerate(self.layers):
             rerr_w.append(rel_error(layer.grad_W, gn[f'W{i}'], eps))
             rerr_b.append(rel_error(layer.grad_b, gn[f'b{i}'], eps))
-            aerr_w.append(np.mean(abs(layer.grad_W - gn[f'W{i}'])))
-            aerr_b.append(np.mean(abs(layer.grad_b - gn[f'b{i}'])))
+            aerr_w.append(fun(abs(layer.grad_W - gn[f'W{i}'])))
+            aerr_b.append(fun(abs(layer.grad_b - gn[f'b{i}'])))
             if isinstance(layer, BNLayer):
-                rerr_gamma.append(rel_error(layer.grad_gamma, gn[f'gamma{i}'], eps))
-                rerr_beta.append(rel_error(layer.grad_beta, gn[f'beta{i}'], eps))
-                aerr_gamma.append(np.mean(abs(layer.grad_gamma - gn[f'gamma{i}'])))
-                aerr_beta.append(np.mean(abs(layer.grad_beta - gn[f'beta{i}'])))
+                rerr_gamma.append(
+                    rel_error(layer.grad_gamma, gn[f'gamma{i}'], eps))
+                rerr_beta.append(
+                    rel_error(layer.grad_beta, gn[f'beta{i}'], eps))
+                aerr_gamma.append(
+                    fun(abs(layer.grad_gamma - gn[f'gamma{i}'])))
+                aerr_beta.append(
+                    fun(abs(layer.grad_beta - gn[f'beta{i}'])))
 
         if self.batch_norm:
             return rerr_w, aerr_w, rerr_b, aerr_b, rerr_gamma, aerr_gamma, rerr_beta, aerr_beta
