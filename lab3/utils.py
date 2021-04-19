@@ -41,3 +41,21 @@ def plotCifar(X, Y):
             axes1[j][k].set_title(Y[i:i+1])
 
 
+def batch_normalize(X, mean, std):
+    Xc = np.copy(X)
+    Xc -= np.outer(mean, np.ones(X.shape[1]))
+    Xc /= np.outer(std, np.ones(X.shape[1]))
+    return Xc
+
+
+def preprocess_data(X_train, y_train, Y_train, X_val, y_val, Y_val, X_test, y_test, Y_test):
+    mean_X = np.mean(X_train, axis=1)
+    std_X = np.std(X_train, axis=1)
+
+    X_train = batch_normalize(X_train, mean_X, std_X)
+    X_val = batch_normalize(X_val, mean_X, std_X)
+    X_test = batch_normalize(X_test, mean_X, std_X).copy()
+    data = {"X_train": X_train, "y_train": y_train, "Y_train": Y_train,
+            "X_val": X_val, "y_val": y_val, "Y_val": Y_val, 
+            "X_test": X_test, "y_test": y_test, "Y_test": Y_test}
+    return data
