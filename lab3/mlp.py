@@ -428,15 +428,15 @@ class MLP():
         batch_size, exp = GDparams["n_batch"], GDparams['exp']
 
         if metric == "loss":
-            plt.ylim(0, 3)
+            plt.ylim(1, 4)
             plt.plot(self.train_loss, label=f"Train {metric}")
             plt.plot(self.val_loss, label=f"Validation {metric}")
         elif metric == "accuracy":
-            plt.ylim(0, 0.8)
+            plt.ylim(0, np.max(self.train_acc)+0.1)
             plt.plot(self.train_acc, label=f"Train {metric}")
             plt.plot(self.val_acc, label=f"Validation {metric}")
         else:
-            plt.ylim(0, 4)
+            plt.ylim(1, 6)
             plt.plot(self.train_cost, label=f"Train {metric}")
             plt.plot(self.val_cost, label=f"Validation {metric}")
 
