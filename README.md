@@ -36,7 +36,18 @@ Solutions for labs for DL course at KTH. Each lab contains implementation of neu
 
 ## Lab3 - k- Layer Network and Batch Normalization
 
-- 
+### Mandatory
+
+- Implement Back Propagation for a k-layer network with cyclic learning
+- Enhance it with batch normalization
+-  Coarse-to-fine Search for Regularization term
+
+#### Bonus 
+
+* Tricks and Avenues to improve the network's performance:
+  - Data Augmentation
+  - Search for the best network architecture
+  - Dropout
 
 ## Lab4 - RNN
 
