@@ -81,7 +81,7 @@ class BNLayer(Layer):
             self.v = np.var(self.scores, axis=1, ddof=1, keepdims=True)
 
             if init:
-                self.mu_av = self.mu_av
+                self.mu_av = self.mu
                 self.v_av = self.v
             else:
                 self.mu_av = self.alpha * self.mu_av + (1-self.alpha) * self.mu
