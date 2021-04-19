@@ -309,7 +309,7 @@ class MLP():
                 X_batch = X[:, j_start:j_end]
                 Y_batch = Y[:, j_start:j_end]
 
-                P_batch = self.forward_pass(X_batch, train_mode=True, init=(epoch==0 & j==0))
+                P_batch = self.forward_pass(X_batch, train_mode=True, init=(epoch==0 and j==0))
 
                 self.compute_gradients(X_batch, Y_batch, P_batch)
 
