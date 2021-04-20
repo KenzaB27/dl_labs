@@ -46,7 +46,7 @@ class Layer():
     def compute_gradients(self, G, n_batch, lamda, propagate=False):
         self.grad_W = G @ self.input.T / n_batch + \
             2 * lamda * self.W
-        self.grad_b = np.sum(G, axis=1, keepdims=True) / n_batch
+        self.grad_b = np.mean(G, axis=1, keepdims=True) 
         if propagate:
             G = self.W.T @ G
             G = np.multiply(G, np.heaviside(self.input, 0))
