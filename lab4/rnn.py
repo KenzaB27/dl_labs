@@ -6,23 +6,43 @@ from collections import OrderedDict
 from tqdm import tqdm
 
 
-def load_data(filename):
-
-    book_data = open(filename, 'r', encoding='utf8').read()
-    book_chars = list(set(book_data))
-
-    data = {"book_data": book_data, "book_chars": book_chars,
-            "vocab_len": len(book_chars), "char_to_ind": OrderedDict(
-                (char, ix) for ix, char in enumerate(book_chars)),
-            "ind_to_char": OrderedDict((ix, char) for ix, char in
-                                       enumerate(book_chars))}
-
-    return data
-
-
 def softmax(x):
     """ Standard definition of the softmax function """
     return np.exp(x) / np.sum(np.exp(x), axis=0)
+
+
+class TextData():
+    def __init__(self, filename):
+        self.book_data = None
+        self.book_chars = None
+        self.vocab_len = None 
+        self.char_to_ind = None
+        self.ind_to_char = None
+
+        self.load_data(filename)
+
+    def load_data(self, filename):
+
+        self.book_data = open(filename, 'r', encoding='utf8').read()
+        self.book_chars = np.array(list(set(self.book_data)))
+        self.vocab_len = len(self.book_chars)
+        self.char_to_ind = OrderedDict(
+            (char, ix) for ix, char in enumerate(self.book_chars))
+        self.ind_to_char = OrderedDict((ix, char) for ix, char in
+                                       enumerate(self.book_chars))
+
+    @ staticmethod
+    def get_one_hot(ix, dim, keepdims=False):
+        if keepdims:
+            x = np.zeros((dim, 1))
+        else:
+            x = np.zeros(dim)
+        x[ix] = 1
+        return x
+
+    def one_hot_encode_X(self, X, keepdims=True):
+        X_ind = [self.char_to_ind[x] for x in X]
+        return np.array([self.get_one_hot(x, self.vocab_len, keepdims=keepdims) for x in X_ind])
 
 class Grads():
     def __init__(self, m=100, K=25):
@@ -42,12 +62,15 @@ class Grads():
 
 
 class RNN():
-    def __init__(self, data, m=100, vocab_len=80, seq_length=25, sig=.01, seed=42):
+    def __init__(self, filename='../Dataset/goblet_book.txt', m=100, seq_length=25, sig=.01, seed=42):
         np.random.seed(seed)
         self.seed = seed
+        
+        self.data = TextData(filename)
 
-        self.m = m                      # dimensionality of the hidden state
-        self.K = vocab_len
+        # dimensionality of the hidden state
+        self.m = m                      
+        self.K = self.data.vocab_len    
         # the length of the input sequence used during training
         self.seq_length = seq_length
 
@@ -57,8 +80,6 @@ class RNN():
         self.b = np.zeros((self.m, 1))
         self.c = np.zeros((self.K, 1))
 
-        for k, v in data.items():
-            setattr(self, k, v)
 
         self.grads = Grads(self.m, self.K)
         self.mem = Grads(m=self.m, K=self.K)
@@ -72,18 +93,6 @@ class RNN():
         ixs = np.where(cp-a > 0)
         return ixs[0][0]
 
-    def reset_memory(self):
-        self.a, self.h, self.o, self.p = {}, {}, {}, {}
-
-    @ staticmethod
-    def get_one_hot(ix, dim, keepdims=False):
-        if keepdims:
-            x = np.zeros((dim, 1))
-        else:
-            x = np.zeros(dim)
-        x[ix] = 1
-        return x
-
     def evaluate_vanilla_rnn(self, h, x):
         a = self.W @ h + self.U @ x + self.b
         h = np.tanh(a)
@@ -91,23 +100,19 @@ class RNN():
         p = softmax(o)
         return a, h, o, p
 
-    def one_hot_encode_X(self, X, keepdims=True):
-        X_ind = [self.char_to_ind[x] for x in X]
-        return np.array([self.get_one_hot(x, self.K, keepdims=keepdims) for x in X_ind])
-
     def synthesize_text(self, h0, i0, n, onehot=False):
         text, Y = "", []
         if onehot:
-            ht, xt = h0, self.get_one_hot(i0, self.K, keepdims=True)
+            ht, xt = h0, self.data.get_one_hot(i0, self.K, keepdims=True)
         else:
             ht, xt = h0, i0
         for _ in range(n):
             _, ht, _, pt = self.evaluate_vanilla_rnn(ht, xt)
             it = self.sample_character(pt)
             # it = np.random.choice(range(self.K), p=pt.flat)
-            xt = self.get_one_hot(it, self.K, keepdims=True)
+            xt = self.data.get_one_hot(it, self.K, keepdims=True)
             Y.append(xt)
-            text += self.ind_to_char[it]
+            text += self.data.ind_to_char[it]
         Y = np.array(Y)
         return Y, text
 
@@ -149,23 +154,27 @@ class RNN():
         return loss, self.h[self.seq_length-1]
 
     def ada_grad(self, eta):
-        
+
         self.mem.U += self.grads.U ** 2
         self.mem.V += self.grads.V ** 2
         self.mem.W += self.grads.W ** 2
         self.mem.b += self.grads.b ** 2
         self.mem.c += self.grads.c ** 2
 
-        self.U -= eta / np.sqrt(self.mem.U + np.finfo(np.float64).eps) * self.grads.U
-        self.V -= eta / np.sqrt(self.mem.V + np.finfo(np.float64).eps) * self.grads.V
-        self.W -= eta / np.sqrt(self.mem.W + np.finfo(np.float64).eps) * self.grads.W
-        self.b -= eta / np.sqrt(self.mem.b + np.finfo(np.float64).eps) * self.grads.b
-        self.c -= eta / np.sqrt(self.mem.c + np.finfo(np.float64).eps) * self.grads.c
+        self.U -= eta / np.sqrt(self.mem.U +
+                                np.finfo(np.float64).eps) * self.grads.U
+        self.V -= eta / np.sqrt(self.mem.V +
+                                np.finfo(np.float64).eps) * self.grads.V
+        self.W -= eta / np.sqrt(self.mem.W +
+                                np.finfo(np.float64).eps) * self.grads.W
+        self.b -= eta / np.sqrt(self.mem.b +
+                                np.finfo(np.float64).eps) * self.grads.b
+        self.c -= eta / np.sqrt(self.mem.c +
+                                np.finfo(np.float64).eps) * self.grads.c
 
-
-    def train_rnn(self, epochs=20, n=200, eta=.1, verbose=True, backup=True):
+    def train_rnn(self, epochs=20, n=200, eta=.1, freq_syn=500, freq_loss=100, verbose=True, backup=True):
         
-        data_1hot = self.one_hot_encode_X(self.book_data)
+        data_1hot = self.data.one_hot_encode_X(self.data.book_data)
 
         history_loss = []
         smooth_loss = 0
@@ -173,13 +182,12 @@ class RNN():
 
         for epoch in tqdm(range(epochs)):
             hprev = np.zeros((self.m, 1))
-            for e in range(0, len(self.book_data), self.seq_length):
-                
-                
+            for e in range(0, len(self.data.book_data)-1, self.seq_length):
+    
                 X = data_1hot[e: e+self.seq_length]
                 Y = data_1hot[e+1: e+1+self.seq_length]
 
-                if e%500 == 0:
+                if e % freq_syn == 0:
                     syn_text[(epoch+1)*e] = {}
                     syn_text['loss'] = smooth_loss
                     _, syn_text['text'] = self.synthesize_text(
@@ -187,21 +195,20 @@ class RNN():
                     if verbose:
                         print(
                             f"Iter={(epoch+1)*e} | smooth loss={smooth_loss}")
-                        print(f"Synthetized text : {syn_text['text']}")
-                
+                        print(f"Synthetized text | {syn_text['text']}")
+
                 loss, hprev = self.back_propagation(hprev, X, Y)
 
                 self.ada_grad(eta)
 
                 smooth_loss = .999 * smooth_loss + .001 * loss
 
-                if e%100 == 0:
+                if e % freq_loss == 0:
                     history_loss.append(smooth_loss)
                     if verbose:
-                        print(f"Iter={(epoch+1)*e} | smooth loss={smooth_loss}")
+                        print(
+                            f"Iter={(epoch+1)*e} | smooth loss={smooth_loss}")
 
         if backup:
             np.save(f"History/rnn_{epoch}_{eta}.npy", self)
             np.save(f"History/text_{epoch}_{eta}.npy", syn_text)
-
-
