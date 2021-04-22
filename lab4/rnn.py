@@ -179,22 +179,23 @@ class RNN():
         history_loss = []
         smooth_loss = 0
         syn_text = {}
-
+        step = 0
         for epoch in tqdm(range(epochs)):
             hprev = np.zeros((self.m, 1))
             for e in range(0, len(self.data.book_data)-1, self.seq_length):
-    
+                if e + self.seq_length >= len(self.data.book_data):
+                    break
                 X = data_1hot[e: e+self.seq_length]
                 Y = data_1hot[e+1: e+1+self.seq_length]
 
-                if e % freq_syn == 0:
+                if step % freq_syn == 0:
                     syn_text[(epoch+1)*e] = {}
                     syn_text['loss'] = smooth_loss
                     _, syn_text['text'] = self.synthesize_text(
                         hprev, X[0], n, onehot=False)
                     if verbose:
                         print(
-                            f"Iter={(epoch+1)*e} | smooth loss={smooth_loss}")
+                            f"Iter={step} | smooth loss={smooth_loss}")
                         print(f"Synthetized text | {syn_text['text']}")
 
                 loss, hprev = self.back_propagation(hprev, X, Y)
@@ -203,11 +204,13 @@ class RNN():
 
                 smooth_loss = .999 * smooth_loss + .001 * loss
 
-                if e % freq_loss == 0:
+                if step % freq_loss == 0:
                     history_loss.append(smooth_loss)
                     if verbose:
                         print(
-                            f"Iter={(epoch+1)*e} | smooth loss={smooth_loss}")
+                            f"Iter={step} | smooth loss={smooth_loss}")
+
+                step += 1
 
         if backup:
             np.save(f"History/rnn_{epoch}_{eta}.npy", self)
