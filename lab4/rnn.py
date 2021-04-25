@@ -8,7 +8,9 @@ from tqdm import tqdm
 
 def softmax(x):
     """ Standard definition of the softmax function """
-    return np.exp(x) / np.sum(np.exp(x), axis=0)
+    return np.exp(x - np.max(x, axis=0)) / \
+        np.exp(x - np.max(x, axis=0)).sum(axis=0)
+
 
 
 class TextData():
@@ -31,18 +33,19 @@ class TextData():
         self.ind_to_char = OrderedDict((ix, char) for ix, char in
                                        enumerate(self.book_chars))
 
-    @ staticmethod
-    def get_one_hot(ix, dim, keepdims=False):
+    def get_one_hot(self, ix, keepdims=True):
         if keepdims:
-            x = np.zeros((dim, 1))
+            x = np.zeros((self.vocab_len, 1))
         else:
-            x = np.zeros(dim)
+            x = np.zeros(self.vocab_len)
         x[ix] = 1
         return x
 
     def one_hot_encode_X(self, X, keepdims=True):
-        X_ind = [self.char_to_ind[x] for x in X]
-        return np.array([self.get_one_hot(x, self.vocab_len, keepdims=keepdims) for x in X_ind])
+        X_ind = np.array([self.char_to_ind[x] for x in X])
+        _1hot = np.array(
+            [self.get_one_hot(ix=x, keepdims=keepdims) for x in X_ind])
+        return X_ind, _1hot
 
 class Grads():
     def __init__(self, m=100, K=25):
@@ -101,39 +104,87 @@ class RNN():
         return a, h, o, p
 
     def synthesize_text(self, h0, i0, n, onehot=False):
-        text, Y = "", []
+
+        text = ""
+        
         if onehot:
-            ht, xt = h0, self.data.get_one_hot(i0, self.K, keepdims=True)
+            ht, xt = h0, self.data.get_one_hot(i0, keepdims=True)
         else:
             ht, xt = h0, i0
+        
         for _ in range(n):
             _, ht, _, pt = self.evaluate_vanilla_rnn(ht, xt)
-            it = self.sample_character(pt)
-            # it = np.random.choice(range(self.K), p=pt.flat)
-            xt = self.data.get_one_hot(it, self.K, keepdims=True)
-            Y.append(xt)
+            # it = self.sample_character(pt)
+            it = np.random.choice(range(self.K), p=pt.flat)
+            xt = self.data.get_one_hot(it)
             text += self.data.ind_to_char[it]
-        Y = np.array(Y)
-        return Y, text
 
-    def forward_pass(self, h, X, Y):
+        return text
+
+    def compute_gradients_num(self, X, y, hprev, h, num_comps=20):
+        rnn_params = {"W": self.W, "U": self.U,
+                      "V": self.V, "b": self.b, "c": self.c}
+        num_grads = {"W": np.zeros_like(self.W), "U": np.zeros_like(self.U),
+                     "V": np.zeros_like(self.V), "b": np.zeros_like(self.b),
+                     "c": np.zeros_like(self.c)}
+
+        for key in rnn_params:
+            for i in range(num_comps):
+                old_par = rnn_params[key].flat[i]  # store old parameter
+                rnn_params[key].flat[i] = old_par + h
+                l1 = self.forward_pass(hprev, X, y)
+                rnn_params[key].flat[i] = old_par - h
+                l2 = self.forward_pass(hprev, X, y)
+                # reset parameter to old value
+                rnn_params[key].flat[i] = old_par
+                num_grads[key].flat[i] = (l1 - l2) / (2*h)
+
+        return num_grads
+
+    def check_gradients(self, X, y, hprev, num_comps=20):
+
+        self.back_propagation(hprev, X, y)
+        grads_ana = {"W": self.grads.W, "U": self.grads.U,
+                     "V": self.grads.V, "b": self.grads.b, "c": self.grads.c}
+        grads_num = self.compute_gradients_num(X, y, hprev, 1e-5)
+
+        print("Gradient checks:")
+        for grad in grads_ana:
+            num   = abs(grads_ana[grad].flat[:num_comps] -
+                    grads_num[grad].flat[:num_comps])
+            denom = np.asarray([max(abs(a), abs(b)) + 1e-10 for a,b in
+                zip(grads_ana[grad].flat[:num_comps],
+                    grads_num[grad].flat[:num_comps])
+            ])
+            max_rel_error = max(num / denom)
+
+            print("The maximum relative error for the %s gradient is: %e." %
+                    (grad, max_rel_error))
+        print()
+
+
+    def forward_pass(self, h, X, y):
+        seq_length = len(X)
         loss = 0
         self.h[-1] = np.copy(h)
-        for t in range(self.seq_length):
+        for t in range(seq_length):
             self.a[t], self.h[t], self.o[t], self.p[t] = self.evaluate_vanilla_rnn(
                 self.h[t-1], X[t])
-            loss += -np.log(np.sum(np.multiply(Y[t], self.p[t]), axis=0))[0]
+            loss += -np.log(self.p[t][y[t]][0])
         return loss
 
-    def backward_pass(self, X, Y):
+    def backward_pass(self, X, y):
+
+        seq_length = len(X) 
 
         grads_a = np.zeros((self.m, 1))
         grads_o = np.zeros((self.K, 1))
         grads_h = np.zeros((self.m, 1))
         grads_h_next = np.zeros((self.m, 1))
 
-        for t in reversed(range(self.seq_length)):
-            grads_o = self.p[t] - Y[t]
+        for t in reversed(range(seq_length)):
+            grads_o = np.copy(self.p[t])
+            grads_o[y[t]] -= 1
 
             self.grads.V += grads_o @ self.h[t].T
             self.grads.c += grads_o
@@ -147,11 +198,12 @@ class RNN():
 
             grads_h_next = self.W.T @ grads_a
 
-    def back_propagation(self, h0, X, Y):
-        loss = self.forward_pass(h0, X, Y)
-        self.backward_pass(X, Y)
+    def back_propagation(self, h0, X, y):
+        seq_length = len(X)
+        loss = self.forward_pass(h0, X, y)
+        self.backward_pass(X, y)
         self.grads.clip_gradients()
-        return loss, self.h[self.seq_length-1]
+        return loss, self.h[seq_length-1]
 
     def ada_grad(self, eta):
 
@@ -174,7 +226,7 @@ class RNN():
 
     def train_rnn(self, epochs=20, n=200, eta=.1, freq_syn=500, freq_loss=100, verbose=True, backup=True):
         
-        data_1hot = self.data.one_hot_encode_X(self.data.book_data)
+        data_ind, data_1hot = self.data.one_hot_encode_X(self.data.book_data)
 
         history_loss = []
         smooth_loss = 0
@@ -186,22 +238,13 @@ class RNN():
                 if e + self.seq_length >= len(self.data.book_data):
                     break
                 X = data_1hot[e: e+self.seq_length]
-                Y = data_1hot[e+1: e+1+self.seq_length]
-
-                if step % freq_syn == 0:
-                    syn_text[(epoch+1)*e] = {}
-                    syn_text['loss'] = smooth_loss
-                    _, syn_text['text'] = self.synthesize_text(
-                        hprev, X[0], n, onehot=False)
-                    if verbose:
-                        print(
-                            f"Iter={step} | smooth loss={smooth_loss}")
-                        print(f"Synthetized text | {syn_text['text']}")
-
+                Y = data_ind[e+1: e+1+self.seq_length]
                 loss, hprev = self.back_propagation(hprev, X, Y)
 
                 self.ada_grad(eta)
 
+                if step == 0:
+                    smooth_loss = loss
                 smooth_loss = .999 * smooth_loss + .001 * loss
 
                 if step % freq_loss == 0:
@@ -210,8 +253,20 @@ class RNN():
                         print(
                             f"Iter={step} | smooth loss={smooth_loss}")
 
+                if step % freq_syn == 0:
+                    syn_text[(epoch+1)*e] = {}
+                    syn_text['loss'] = smooth_loss
+                    syn_text['text'] = self.synthesize_text(
+                        hprev, X[0], n, onehot=False)
+                    if verbose:
+                        print(f"Synthetized text | {syn_text['text']}")
+
                 step += 1
 
+        if verbose:
+            plt.figure()
+            plt.plot(history_loss)
+            plt.show()
         if backup:
             np.save(f"History/rnn_{epoch}_{eta}.npy", self)
             np.save(f"History/text_{epoch}_{eta}.npy", syn_text)
