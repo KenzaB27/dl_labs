@@ -271,10 +271,10 @@ class RNN():
 
     @staticmethod
     def load_rnn(filename):
-        params = np.load(filename, allow_pickle=True)
+        params = np.load(filename, allow_pickle=True).item()
         rnn = RNN()
         rnn_params = {"W": rnn.W, "V": rnn.V,
                        "U": rnn.U, "b": rnn.b, "c": rnn.c}
         for p in params:
-            rnn_params[p] = params[p]
+            rnn_params[p] = params[p].copy()
         return rnn
