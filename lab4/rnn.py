@@ -74,7 +74,6 @@ class RNN():
         # dimensionality of the hidden state
         self.m = m                      
         self.K = self.data.vocab_len    
-        # the length of the input sequence used during training
         self.seq_length = seq_length
 
         self.U = np.random.normal(0, sig, size=(self.m, self.K))
@@ -162,7 +161,6 @@ class RNN():
                     (grad, max_rel_error))
         print()
 
-
     def forward_pass(self, h, X, y):
         seq_length = len(X)
         loss = 0
@@ -199,6 +197,8 @@ class RNN():
             grads_h_next = self.W.T @ grads_a
 
     def back_propagation(self, h0, X, y):
+        # reset gradients
+        self.grads = Grads(self.m, self.K)
         seq_length = len(X)
         loss = self.forward_pass(h0, X, y)
         self.backward_pass(X, y)
@@ -207,43 +207,34 @@ class RNN():
 
     def ada_grad(self, eta):
 
-        self.mem.U += self.grads.U ** 2
-        self.mem.V += self.grads.V ** 2
-        self.mem.W += self.grads.W ** 2
-        self.mem.b += self.grads.b ** 2
-        self.mem.c += self.grads.c ** 2
+        grads = {"W": self.grads.W, "U": self.grads.U,
+                "V": self.grads.V, "b": self.grads.b, "c": self.grads.c}
 
-        self.U -= eta / np.sqrt(self.mem.U +
-                                np.finfo(np.float64).eps) * self.grads.U
-        self.V -= eta / np.sqrt(self.mem.V +
-                                np.finfo(np.float64).eps) * self.grads.V
-        self.W -= eta / np.sqrt(self.mem.W +
-                                np.finfo(np.float64).eps) * self.grads.W
-        self.b -= eta / np.sqrt(self.mem.b +
-                                np.finfo(np.float64).eps) * self.grads.b
-        self.c -= eta / np.sqrt(self.mem.c +
-                                np.finfo(np.float64).eps) * self.grads.c
+        rnn = {"W": self.W, "U": self.U, "V": self.V, "b": self.b, "c": self.c}
+
+        mem = {"W": self.mem.W, "U": self.mem.U,
+                "V": self.mem.V, "b": self.mem.b, "c": self.mem.c}
+
+        for param in rnn:
+            mem[param] += grads[param] ** 2
+            rnn[param] -= eta / np.sqrt(mem[param] + np.finfo(np.float64).eps) * grads[param]
 
     def train_rnn(self, epochs=20, n=200, eta=.1, freq_syn=500, freq_loss=100, verbose=True, backup=True):
         
         data_ind, data_1hot = self.data.one_hot_encode_X(self.data.book_data)
 
-        history_loss = []
-        smooth_loss = 0
-        syn_text = {}
-        step = 0
+        history_loss, smooth_loss, prev_loss, syn_text, step = [], 0, 200, {}, 0
+        s = 0
         for epoch in tqdm(range(epochs)):
             hprev = np.zeros((self.m, 1))
-            for e in range(0, len(self.data.book_data)-1, self.seq_length):
-                if e + self.seq_length >= len(self.data.book_data):
-                    break
+            for e in range(0, len(self.data.book_data) - self.seq_length - 1, self.seq_length):
                 X = data_1hot[e: e+self.seq_length]
                 Y = data_ind[e+1: e+1+self.seq_length]
                 loss, hprev = self.back_propagation(hprev, X, Y)
 
                 self.ada_grad(eta)
 
-                if step == 0:
+                if step == 0 and epoch == 0:
                     smooth_loss = loss
                 smooth_loss = .999 * smooth_loss + .001 * loss
 
@@ -254,12 +245,19 @@ class RNN():
                             f"Iter={step} | smooth loss={smooth_loss}")
 
                 if step % freq_syn == 0:
-                    syn_text[(epoch+1)*e] = {}
-                    syn_text['loss'] = smooth_loss
-                    syn_text['text'] = self.synthesize_text(
+                    syn_text[step] = {}
+                    syn_text[step] ['loss'] = smooth_loss
+                    syn_text[step]['text'] = self.synthesize_text(
                         hprev, X[0], n, onehot=False)
                     if verbose:
-                        print(f"Synthetized text | {syn_text['text']}")
+                        print(f"Synthetized text | {syn_text[step]['text']}")
+                    
+                if smooth_loss < 40:
+                    if smooth_loss < prev_loss:
+                        rnn_params = {"W": self.W.copy(), "V": self.V.copy(),
+                                  "U": self.U.copy(), "b": self.b.copy(), "c": self.c.copy()}
+                    prev_loss = smooth_loss
+                    s = step
 
                 step += 1
 
@@ -267,6 +265,16 @@ class RNN():
             plt.figure()
             plt.plot(history_loss)
             plt.show()
-        if backup:
-            np.save(f"History/rnn_{epoch}_{eta}.npy", self)
-            np.save(f"History/text_{epoch}_{eta}.npy", syn_text)
+
+        np.save(f"History/params_{s}_{prev_loss}.npy", rnn_params)
+        return syn_text
+
+    @staticmethod
+    def load_rnn(filename):
+        params = np.load(filename, allow_pickle=True)
+        rnn = RNN()
+        rnn_params = {"W": rnn.W, "V": rnn.V,
+                       "U": rnn.U, "b": rnn.b, "c": rnn.c}
+        for p in params:
+            rnn_params[p] = params[p]
+        return rnn
