@@ -50,5 +50,10 @@ Solutions for labs for DL course at KTH. Each lab contains implementation of neu
   - Dropout
 
 ## Lab4 - RNN
-
-- 
+Train a vanilla RNN with outputs, as described using the text from the book The Goblet of Fire by J.K. Rowling.
+The variation of SGD you will use for the optimization will be AdaGrad.
+* Major Components: 
+  - Preparing the data: one hot encoding 
+  - Back Propagation for vanilla RNN 
+  - AdaGrad
+  - synthesizing text from RNN
